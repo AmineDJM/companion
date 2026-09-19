@@ -246,3 +246,22 @@ function stripUndefined(input: EntitlementOverride): EntitlementOverride {
 export function analyticsAtLeast(actual: AnalyticsLevel, required: AnalyticsLevel): boolean {
   return ANALYTICS_RANK[actual] >= ANALYTICS_RANK[required];
 }
+
+/**
+ * Presentation helpers.
+ *
+ * Product capability must always come from resolved entitlements — never from
+ * a plan key. These two helpers exist so the handful of *presentational* and
+ * *billing-flow* comparisons that genuinely need the key live in one audited
+ * place rather than being scattered through components.
+ */
+
+/** True for the plan that has no Stripe price and therefore no checkout. */
+export function isFreePlan(planKey: string): boolean {
+  return planKey === 'free';
+}
+
+/** The plan highlighted on the pricing page. Marketing emphasis only. */
+export function isFeaturedPlan(planKey: string): boolean {
+  return planKey === 'pro';
+}

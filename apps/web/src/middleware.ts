@@ -12,7 +12,17 @@ const RECIPIENT_HEADER = 'x-companion-recipient';
 const VIEWER_PATH = /^\/c\/([A-Za-z0-9]{4,24})(?:\/|$)/;
 
 export function middleware(request: NextRequest): NextResponse {
-  const match = VIEWER_PATH.exec(request.nextUrl.pathname);
+  const { pathname } = request.nextUrl;
+
+  // Server Components cannot read the current path; the admin console needs it
+  // to highlight the active navigation item.
+  if (pathname.startsWith('/admin')) {
+    const headers = new Headers(request.headers);
+    headers.set('x-pathname', pathname);
+    return NextResponse.next({ request: { headers } });
+  }
+
+  const match = VIEWER_PATH.exec(pathname);
   if (!match) return NextResponse.next();
 
   const slug = match[1] as string;
@@ -51,5 +61,5 @@ function generateToken(): string {
 }
 
 export const config = {
-  matcher: ['/c/:slug*'],
+  matcher: ['/c/:slug*', '/admin/:path*', '/admin'],
 };

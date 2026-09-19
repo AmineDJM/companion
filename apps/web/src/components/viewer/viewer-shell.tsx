@@ -240,7 +240,6 @@ export function ViewerShell({ initial }: { initial: ViewerData }) {
               onOpenChange={setChatOpen}
               messages={messages}
               onMessages={setMessages}
-              onCitation={handleCitation}
               selection={selection}
               onClearSelection={() => setSelection(null)}
             />

@@ -1,5 +1,5 @@
 import type { AnalyticsEventType } from '@companion/shared';
-import { and, desc, eq, gte, isNull, schema, sql } from '@companion/db';
+import { and, desc, eq, gte, isNull, schema, sql, ts } from '@companion/db';
 import { unansweredInsight } from '@companion/ai';
 import { getContainer } from '../container';
 
@@ -334,7 +334,7 @@ export async function dailySeries(
       to_char(d.day, 'YYYY-MM-DD') AS day,
       coalesce(count(e.id) FILTER (WHERE e.type = 'companion_opened'), 0)::int AS views,
       coalesce(count(e.id) FILTER (WHERE e.type IN ('question_asked','question_unanswered')), 0)::int AS questions
-    FROM generate_series(${since}::date, now()::date, '1 day') AS d(day)
+    FROM generate_series(${ts(since)}::date, now()::date, '1 day') AS d(day)
     LEFT JOIN analytics_events e
       ON e.companion_id = ${companionId}
      AND e.occurred_at >= d.day

@@ -6,11 +6,7 @@ import { AccessGate } from '@/components/viewer/access-gate';
 import { UnavailableScreen } from '@/components/viewer/unavailable';
 import { recordCompanionOpen } from '@/server/services/analytics';
 import { getCompanionBySlug, loadAccessState } from '@/server/services/companions';
-import {
-  credentialsOf,
-  ensureRecipientSession,
-  evaluateAccess,
-} from '@/server/services/recipient-session';
+import { ensureRecipientSession, evaluateAccess } from '@/server/services/recipient-session';
 import { buildViewerPayload } from '@/server/services/viewer';
 
 export const dynamic = 'force-dynamic';

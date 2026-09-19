@@ -51,7 +51,6 @@ export function AskBar({
   onOpenChange,
   messages,
   onMessages,
-  onCitation,
   selection,
   onClearSelection,
 }: {
@@ -62,7 +61,6 @@ export function AskBar({
   onOpenChange: (open: boolean) => void;
   messages: ChatMessage[];
   onMessages: (updater: (current: ChatMessage[]) => ChatMessage[]) => void;
-  onCitation: (citation: Citation) => void;
   selection: string | null;
   onClearSelection: () => void;
 }) {
