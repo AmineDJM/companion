@@ -1,0 +1,271 @@
+import { extname } from 'node:path';
+import yauzl, { type Entry, type ZipFile } from 'yauzl';
+import {
+  ARCHIVE_DENYLIST_EXTENSIONS,
+  isAcceptedFilename,
+  looksExecutable,
+  type PlatformLimits,
+} from '@companion/shared';
+
+/**
+ * Safe archive extraction.
+ *
+ * Archives are the most dangerous thing a stranger can upload. Every guard here
+ * exists because an attacker controls the file: zip bombs (ratio and total-size
+ * caps), path traversal (`../`, absolute paths, drive letters), symlinks
+ * (refused outright), executables (magic bytes, not just extensions), entry
+ * floods and deep nesting.
+ */
+export interface ArchiveEntry {
+  /** Normalised, guaranteed-relative path inside the archive. */
+  path: string;
+  bytes: Buffer;
+  sizeBytes: number;
+}
+
+export interface ArchiveRejection {
+  path: string;
+  reason: string;
+}
+
+export interface ArchiveResult {
+  entries: ArchiveEntry[];
+  rejected: ArchiveRejection[];
+  totalUncompressedBytes: number;
+  /** Nested archives found inside, returned for a bounded second pass. */
+  nestedArchives: ArchiveEntry[];
+}
+
+export class ArchiveRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ArchiveRejectedError';
+  }
+}
+
+export async function extractArchive(
+  buffer: Buffer,
+  limits: PlatformLimits,
+  options: { depth: number } = { depth: 1 },
+): Promise<ArchiveResult> {
+  if (options.depth > limits.maxArchiveDepth) {
+    throw new ArchiveRejectedError(
+      `Archives nested more than ${limits.maxArchiveDepth} levels deep are not accepted.`,
+    );
+  }
+
+  const zip = await openZip(buffer);
+  const entries: ArchiveEntry[] = [];
+  const rejected: ArchiveRejection[] = [];
+  const nestedArchives: ArchiveEntry[] = [];
+  let totalUncompressed = 0;
+  let entryCount = 0;
+
+  try {
+    for await (const entry of iterateEntries(zip)) {
+      entryCount += 1;
+      if (entryCount > limits.maxArchiveEntries) {
+        throw new ArchiveRejectedError(
+          `This archive contains more than ${limits.maxArchiveEntries} files.`,
+        );
+      }
+
+      const rawPath = entry.fileName;
+
+      // Directory markers carry no content.
+      if (rawPath.endsWith('/')) continue;
+
+      // Symlinks are stored with the link target as content; following one
+      // would read arbitrary host files, so they are never extracted.
+      if (isSymlink(entry)) {
+        rejected.push({ path: rawPath, reason: 'Symbolic links are not extracted.' });
+        continue;
+      }
+
+      const safePath = sanitiseArchivePath(rawPath);
+      if (!safePath) {
+        rejected.push({ path: rawPath, reason: 'Unsafe path.' });
+        continue;
+      }
+
+      // Archive metadata directories carry nothing a reader wants.
+      if (isNoise(safePath)) continue;
+
+      const extension = extname(safePath).slice(1).toLowerCase();
+      if ((ARCHIVE_DENYLIST_EXTENSIONS as readonly string[]).includes(extension)) {
+        rejected.push({ path: safePath, reason: 'Executable files are not accepted.' });
+        continue;
+      }
+
+      const declaredSize = entry.uncompressedSize;
+      if (totalUncompressed + declaredSize > limits.maxArchiveExtractedBytes) {
+        throw new ArchiveRejectedError('This archive expands to more than the allowed size.');
+      }
+
+      // Zip-bomb ratio check on the declared sizes, before decompressing.
+      if (
+        entry.compressedSize > 0 &&
+        declaredSize / entry.compressedSize > limits.maxCompressionRatio &&
+        declaredSize > 1024 * 1024
+      ) {
+        throw new ArchiveRejectedError('This archive appears to be a decompression bomb.');
+      }
+
+      const isNested = extension === 'zip';
+      if (!isNested && !isAcceptedFilename(safePath)) {
+        rejected.push({ path: safePath, reason: 'Unsupported file type.' });
+        continue;
+      }
+
+      const bytes = await readEntry(zip, entry, declaredSize);
+
+      // The real size can differ from the declared one in a crafted archive.
+      if (bytes.byteLength !== declaredSize) {
+        totalUncompressed += bytes.byteLength;
+        if (totalUncompressed > limits.maxArchiveExtractedBytes) {
+          throw new ArchiveRejectedError('This archive expands to more than the allowed size.');
+        }
+      } else {
+        totalUncompressed += declaredSize;
+      }
+
+      if (looksExecutable(bytes.subarray(0, 8))) {
+        rejected.push({ path: safePath, reason: 'Executable files are not accepted.' });
+        continue;
+      }
+
+      const collected: ArchiveEntry = { path: safePath, bytes, sizeBytes: bytes.byteLength };
+      if (isNested) nestedArchives.push(collected);
+      else entries.push(collected);
+    }
+  } finally {
+    zip.close();
+  }
+
+  return { entries, rejected, totalUncompressedBytes: totalUncompressed, nestedArchives };
+}
+
+function openZip(buffer: Buffer): Promise<ZipFile> {
+  return new Promise((resolve, reject) => {
+    yauzl.fromBuffer(buffer, { lazyEntries: true, autoClose: false }, (error, zipfile) => {
+      if (error || !zipfile) {
+        reject(new ArchiveRejectedError('This archive could not be opened.'));
+        return;
+      }
+      resolve(zipfile);
+    });
+  });
+}
+
+async function* iterateEntries(zip: ZipFile): AsyncGenerator<Entry> {
+  // yauzl's lazy mode is callback-driven; this adapts it to an async iterator
+  // so extraction stays streaming rather than loading every entry at once.
+  const queue: Entry[] = [];
+  let done = false;
+  let failure: Error | null = null;
+  let notify: (() => void) | null = null;
+
+  const wake = () => {
+    notify?.();
+    notify = null;
+  };
+
+  zip.on('entry', (entry: Entry) => {
+    queue.push(entry);
+    wake();
+  });
+  zip.on('end', () => {
+    done = true;
+    wake();
+  });
+  zip.on('error', (error: Error) => {
+    failure = error;
+    done = true;
+    wake();
+  });
+
+  zip.readEntry();
+
+  for (;;) {
+    if (failure) throw new ArchiveRejectedError('This archive is malformed.');
+    const next = queue.shift();
+    if (next) {
+      yield next;
+      zip.readEntry();
+      continue;
+    }
+    if (done) return;
+    await new Promise<void>((resolve) => {
+      notify = resolve;
+    });
+  }
+}
+
+function readEntry(zip: ZipFile, entry: Entry, expectedSize: number): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    zip.openReadStream(entry, (error, stream) => {
+      if (error || !stream) {
+        reject(new ArchiveRejectedError(`Could not read ${entry.fileName}.`));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      let total = 0;
+      // Hard stop: a lying central directory cannot make us read unbounded data.
+      const ceiling = Math.max(expectedSize * 2, 8 * 1024 * 1024);
+
+      stream.on('data', (chunk: Buffer) => {
+        total += chunk.byteLength;
+        if (total > ceiling) {
+          stream.destroy();
+          reject(new ArchiveRejectedError('An archive entry is larger than it declared.'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('error', () => reject(new ArchiveRejectedError(`Could not read ${entry.fileName}.`)));
+    });
+  });
+}
+
+/** yauzl exposes the unix mode in the high 16 bits of externalFileAttributes. */
+function isSymlink(entry: Entry): boolean {
+  const mode = (entry.externalFileAttributes >>> 16) & 0xffff;
+  const S_IFMT = 0o170000;
+  const S_IFLNK = 0o120000;
+  return (mode & S_IFMT) === S_IFLNK;
+}
+
+/**
+ * Produces a guaranteed-relative path, or null when the entry is trying to
+ * escape. Rejects absolute paths, drive letters, UNC paths, `..` segments,
+ * backslash separators and NUL bytes.
+ */
+export function sanitiseArchivePath(rawPath: string): string | null {
+  if (!rawPath || rawPath.includes('\0')) return null;
+  if (rawPath.length > 1_000) return null;
+
+  // Normalise Windows separators before any other check.
+  const normalised = rawPath.replace(/\\/g, '/');
+
+  if (normalised.startsWith('/')) return null;
+  if (/^[a-zA-Z]:/.test(normalised)) return null;
+  if (normalised.startsWith('//')) return null;
+
+  const segments = normalised.split('/').filter((segment) => segment.length > 0 && segment !== '.');
+  if (segments.length === 0) return null;
+  if (segments.some((segment) => segment === '..')) return null;
+  if (segments.length > 24) return null;
+  if (segments.some((segment) => segment.length > 255)) return null;
+
+  return segments.join('/');
+}
+
+function isNoise(path: string): boolean {
+  return (
+    path.startsWith('__MACOSX/') ||
+    path.includes('/__MACOSX/') ||
+    path.split('/').some((segment) => segment === '.DS_Store' || segment === 'Thumbs.db') ||
+    path.split('/').pop()?.startsWith('._') === true
+  );
+}

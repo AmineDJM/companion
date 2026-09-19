@@ -1,0 +1,42 @@
+{
+  "name": "companion",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "pnpm -r --filter=./packages/* build && pnpm --filter @companion/web build && pnpm --filter @companion/worker build",
+    "build:web": "pnpm -r --filter=./packages/* build && pnpm --filter @companion/web build",
+    "build:worker": "pnpm -r --filter=./packages/* build && pnpm --filter @companion/worker build",
+    "dev": "pnpm -r --parallel dev",
+    "dev:web": "pnpm --filter @companion/web dev",
+    "dev:worker": "pnpm --filter @companion/worker dev",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:watch": "vitest",
+    "test:e2e": "pnpm --filter @companion/e2e test",
+    "db:generate": "pnpm --filter @companion/db generate",
+    "db:migrate": "pnpm --filter @companion/db migrate",
+    "db:seed": "pnpm --filter @companion/db seed",
+    "db:studio": "pnpm --filter @companion/db studio",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^22.19.0",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^16.5.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.2",
+    "vitest": "^3.2.4",
+    "dotenv": "^17.2.3",
+    "tsx": "^4.20.6"
+  }
+}
