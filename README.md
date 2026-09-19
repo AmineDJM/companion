@@ -16,6 +16,9 @@ a single line at the bottom of the page: *✦ Ask anything…*
 - **One dropzone, one link.** Files, folders and ZIPs in any mix produce one
   permanent URL (`/c/x8K2pz`). Adding or replacing content later keeps the same
   link.
+- **You do the sending.** Companion never emails anybody a link. You copy it
+  and share it wherever your recipient already is — WhatsApp, Slack, SMS, your
+  own mail client. Nothing in the core path needs a mail provider.
 - **The recipient needs nothing.** No account, no install. The first page is
   visible before anything else loads.
 - **Answers cite their source.** Every claim points at a file and a page, and
@@ -165,8 +168,10 @@ instance. Migrations run as the web service's pre-deploy command. Every secret
 is `sync:false`, so it is entered once in the Render dashboard and never
 appears in this repository.
 
-The blueprint is not a one-click product: the S3 credentials, the OpenAI key,
-an email provider and `SUPER_ADMIN_EMAILS` are yours to fill in. `APP_URL` is
+The blueprint is not a one-click product: the S3 credentials, the OpenAI key
+and `SUPER_ADMIN_EMAILS` are yours to fill in. An email provider is optional —
+Companion does not send share links, so the whole upload → attach → copy link →
+open → ask path runs without one. `APP_URL` is
 optional — until you attach a custom domain, Render's own URL is used, so the
 first deploy produces working share links with nothing set.
 

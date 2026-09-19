@@ -9,7 +9,7 @@
 | A private S3-compatible bucket | Canonical document storage. Not optional — see below. |
 | An OpenAI key | Answers and reading scanned pages. Everything else works without it. |
 | A Stripe account (optional) | Checkout and the customer portal. No Connect. |
-| SMTP (optional) | Magic links and recipient identity codes. |
+| An email provider (optional) | Only for magic-link sign-in and the two access modes that confirm a recipient's address. Sharing a link never needs it. |
 
 ## Storage must be shared, not just durable
 
@@ -63,7 +63,7 @@ owner, and a test asserts it stays that way.
    | `OPENAI_API_KEY` | Documents open and index for keyword search; questions are unavailable and scanned pages are not read. |
    | `SUPER_ADMIN_EMAILS` | `/admin` is unreachable. See below. |
    | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Checkout answers 503 with a clear message rather than failing oddly. Without the webhook secret, every Stripe event is rejected and subscriptions never activate. |
-   | `EMAIL_PROVIDER` + `RESEND_API_KEY` | Magic links and recipient identity codes cannot be sent, so identity-gated links cannot be opened. |
+   | `EMAIL_PROVIDER` + `RESEND_API_KEY` | *Optional.* Companion never sends share links — you copy the link and share it yourself. Without a provider, magic-link sign-in and the two confirm-by-email access modes are unavailable; everything else works. |
 
 3. **Set `SUPER_ADMIN_EMAILS`, then sign up with a listed address.** Order does
    not matter. The allowlist is reconciled at registration *and* on every

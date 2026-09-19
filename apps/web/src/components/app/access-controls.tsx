@@ -32,7 +32,16 @@ export interface AccessEntitlements {
   identifiedAccess: boolean;
   customExpiration: boolean;
   removeBranding: boolean;
+  /**
+   * Whether this instance can send a message at all. Sharing a link never
+   * needs it — you copy the link and send it yourself — but the two modes
+   * that confirm a recipient's address do.
+   */
+  emailDelivery: boolean;
 }
+
+const EMAIL_REQUIRED =
+  'Needs email, which is not set up here. This instance can still share public and password-protected links.';
 
 /**
  * Access controls.
@@ -136,14 +145,20 @@ export function AccessControls({
             onSelect={() => setAccessMode('EMAIL_LIST')}
             title="Specific people"
             description="Only the addresses or domains you list can open it."
-            locked={!entitlements.emailListAccess}
+            locked={!entitlements.emailListAccess || !entitlements.emailDelivery}
+            {...(entitlements.emailListAccess && !entitlements.emailDelivery
+              ? { lockedReason: EMAIL_REQUIRED }
+              : {})}
           />
           <ModeOption
             checked={accessMode === 'IDENTIFIED'}
             onSelect={() => setAccessMode('IDENTIFIED')}
             title="Identified access"
             description="Anyone with the link, but they confirm an email address first."
-            locked={!entitlements.identifiedAccess}
+            locked={!entitlements.identifiedAccess || !entitlements.emailDelivery}
+            {...(entitlements.identifiedAccess && !entitlements.emailDelivery
+              ? { lockedReason: EMAIL_REQUIRED }
+              : {})}
           />
         </div>
 
@@ -303,12 +318,15 @@ function ModeOption({
   title,
   description,
   locked,
+  lockedReason,
 }: {
   checked: boolean;
   onSelect: () => void;
   title: string;
   description: string;
   locked?: boolean;
+  /** Shown in place of the description when the option is unavailable. */
+  lockedReason?: string;
 }) {
   return (
     <button
@@ -336,12 +354,12 @@ function ModeOption({
           <span className="text-[14px] font-[500] text-ink">{title}</span>
           {locked ? (
             <Badge>
-              <LockIcon size={11} /> Paid plan
+              <LockIcon size={11} /> {lockedReason ? 'Unavailable' : 'Paid plan'}
             </Badge>
           ) : null}
         </span>
         <span className="mt-0.5 block text-[12.5px] leading-relaxed text-ink-muted">
-          {description}
+          {lockedReason ?? description}
         </span>
       </span>
     </button>

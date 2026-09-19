@@ -116,8 +116,10 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
-      # resend, smtp or none. `none` is a real choice for an instance that only
-      # shares public links; an identity-gated link cannot be opened without it.
+      # Optional. Companion does not send share links — the sender copies the
+      # link and shares it themselves — so `none` is a complete instance.
+      # Only magic-link sign-in and the two confirm-by-email access modes
+      # need delivery; without it those modes are unavailable, not broken.
       - key: EMAIL_PROVIDER
         value: none
       - key: RESEND_API_KEY

@@ -86,6 +86,23 @@ the way out, independently of whatever the model decided to do.
 Verification runs after the answer is durable, so gathering evidence can never
 delay a reader's reply.
 
+## Distribution
+
+Companion produces a link and stops. It has no address book, no send queue and
+no delivery reputation to manage, because the sender already has all three in
+whatever they use every day. The link is the product's entire distribution
+mechanism, which is why the core path never touches a mail provider:
+
+```
+Upload -> Attach Companion -> Copy link
+```
+
+Email appears only where Companion has to reach someone *it* has no other
+channel to: a magic-link sign-in (a password works instead) and the two access
+modes where a recipient confirms their own address. Those are optional
+features, and without a provider the UI marks them unavailable and says why
+rather than letting a sender publish a link nobody can open.
+
 ## Access control
 
 Availability is derived from the clock, not from a status a sweep has to write.

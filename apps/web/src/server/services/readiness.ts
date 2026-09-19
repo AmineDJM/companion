@@ -68,7 +68,7 @@ export async function productionReadiness(): Promise<ReadinessReport> {
   checks.push(...(await infrastructureChecks()));
   checks.push(...(await storageChecks(production)));
   checks.push(...(await aiChecks()));
-  checks.push(await emailCheck(production));
+  checks.push(await emailCheck());
   checks.push(...(await billingChecks()));
   checks.push(...(await accessChecks(production)));
   checks.push(...releaseChecks());
@@ -306,46 +306,89 @@ async function aiChecks(): Promise<ReadinessCheck[]> {
   ];
 }
 
-async function emailCheck(production: boolean): Promise<ReadinessCheck> {
+/**
+ * Email is optional, and sized by what actually depends on it.
+ *
+ * Companion does not deliver links. A sender creates a Companion, copies the
+ * link and shares it wherever they like — WhatsApp, Slack, SMS, their own mail
+ * client. So the core of the product (upload, attach, copy link, open, ask)
+ * never sends a message, and an instance with no provider is a complete
+ * instance rather than a broken one.
+ *
+ * Two optional features do need delivery: a magic-link sign-in, which has a
+ * password alternative, and the two access modes that confirm a recipient's
+ * address. Those are the only things this check weighs, and it weighs them by
+ * counting the Companions that are actually configured that way — an unused
+ * capability is not a deployment failure.
+ */
+async function emailCheck(): Promise<ReadinessCheck> {
+  const { db } = getContainer();
   const status = await emailProviderStatus();
 
+  const rows = await db
+    .select({ value: sql<number>`count(*)::int` })
+    .from(schema.companions)
+    .where(sql`${schema.companions.accessMode} IN ('EMAIL_LIST', 'IDENTIFIED')
+               AND ${schema.companions.deletedAt} IS NULL`);
+  const dependents = Number(rows[0]?.value ?? 0);
+
   if (!status.configured) {
-    return fail(
-      'email',
-      'Email delivery',
-      'Communication',
-      production ? 'CRITICAL' : 'WARNING',
-      'EMAIL_PROVIDER is none — identity-gated links cannot be opened',
-      'Set EMAIL_PROVIDER=resend with RESEND_API_KEY, or EMAIL_PROVIDER=smtp with SMTP_URL.',
-    );
+    return dependents === 0
+      ? pass(
+          'email',
+          'Email delivery (optional)',
+          'Communication',
+          'Not configured, and nothing needs it — links are shared by the sender',
+        )
+      : {
+          id: 'email',
+          label: 'Email delivery (optional)',
+          group: 'Communication',
+          status: 'WARNING',
+          detail: `Not configured, but ${dependents} Companion(s) confirm a recipient's address`,
+          remediation:
+            'Those recipients cannot receive their code. Either set EMAIL_PROVIDER, or switch ' +
+            'those Companions to a public or password-protected link.',
+        };
   }
 
   if (status.attempts24h === 0) {
-    return {
-      id: 'email',
-      label: 'Email delivery',
-      group: 'Communication',
-      status: 'WARNING',
-      detail: `${status.displayName} configured, nothing sent in 24h`,
-      remediation: 'Send a magic link to confirm delivery actually works end to end.',
-    };
+    return pass(
+      'email',
+      'Email delivery (optional)',
+      'Communication',
+      `${status.displayName} configured, nothing sent in 24h`,
+    );
   }
 
   if (status.errorRate24h > 0.2) {
-    return fail(
-      'email',
-      'Email delivery',
-      'Communication',
-      'CRITICAL',
+    const detail =
       `${status.displayName}: ${status.failures24h} of ${status.attempts24h} failed in 24h` +
-        (status.lastError ? ` (${status.lastError})` : ''),
-      'Check the sending domain is verified with the provider.',
-    );
+      (status.lastError ? ` (${status.lastError})` : '');
+    // Only critical when someone is locked out right now: a configured but
+    // failing provider that nothing depends on is worth fixing, not blocking.
+    return dependents > 0
+      ? fail(
+          'email',
+          'Email delivery (optional)',
+          'Communication',
+          'CRITICAL',
+          `${detail} — ${dependents} Companion(s) depend on it`,
+          'Check the sending domain is verified with the provider.',
+        )
+      : {
+          id: 'email',
+          label: 'Email delivery (optional)',
+          group: 'Communication',
+          status: 'WARNING',
+          detail,
+          remediation: 'Check the sending domain is verified with the provider.',
+        };
   }
 
   return pass(
     'email',
-    'Email delivery',
+    'Email delivery (optional)',
     'Communication',
     `${status.displayName}, last success ${status.lastSuccessAt ? status.lastSuccessAt.toISOString() : 'never'}`,
   );

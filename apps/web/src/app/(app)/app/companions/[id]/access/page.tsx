@@ -5,6 +5,7 @@ import { loadWorkspaceContext } from '@/server/services/workspace';
 import { getContainer } from '@/server/container';
 import { eq, schema } from '@companion/db';
 import { AccessControls } from '@/components/app/access-controls';
+import { emailDeliveryAvailable } from '@/server/email';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,6 +50,9 @@ export default async function CompanionAccessPage({
       entitlements={{
         passwordProtection: workspace.entitlements.passwordProtection,
         emailListAccess: workspace.entitlements.emailListAccess,
+        // Configuration, not plan: the two confirm-by-email modes need a
+        // provider. Sharing a link never does.
+        emailDelivery: emailDeliveryAvailable(),
         identifiedAccess: workspace.entitlements.identifiedAccess,
         customExpiration: workspace.entitlements.customExpiration,
         removeBranding: workspace.entitlements.removeBranding,

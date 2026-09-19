@@ -47,6 +47,16 @@ export function emailProvider(): EmailProvider {
   return provider;
 }
 
+/**
+ * Whether this instance can deliver a message at all.
+ *
+ * Only the features that confirm someone's address need this. Sharing a
+ * Companion never does: the sender copies the link and sends it themselves.
+ */
+export function emailDeliveryAvailable(): boolean {
+  return emailProvider().id !== 'none';
+}
+
 /** Test seam, and the reset the configuration reload needs. */
 export function resetEmailProvider(): void {
   provider = null;

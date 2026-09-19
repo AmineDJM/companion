@@ -13,6 +13,7 @@ import {
 } from '@companion/shared';
 import { and, asc, desc, eq, gte, inArray, isNull, or, schema, sql, type SQL } from '@companion/db';
 import { getContainer } from '../container';
+import { emailDeliveryAvailable } from '../email';
 import { hashPassword } from '../crypto';
 import { AUDIT_ACTIONS, recordAudit } from './audit';
 import { assertCanCreateCompanion } from './quota';
@@ -368,6 +369,19 @@ function assertAccessModeAllowed(mode: AccessMode, workspace: WorkspaceContext):
     throw new AppError('entitlement_required', 'Identified access is available on the Business plan.', {
       details: { entitlement: 'identifiedAccess' },
     });
+  }
+
+  // These two modes send the recipient a confirmation code. Companion does not
+  // deliver share links — the sender does that — but it does have to deliver
+  // that code, so without a mail provider this would produce a link nobody
+  // could open. Refusing is kinder than letting the sender find out later.
+  if ((mode === 'EMAIL_LIST' || mode === 'IDENTIFIED') && !emailDeliveryAvailable()) {
+    throw new AppError(
+      'provider_unavailable',
+      'This option confirms each recipient by email, and email is not configured on this instance. ' +
+        'Use a public or password-protected link.',
+      { details: { requires: 'EMAIL_PROVIDER' } },
+    );
   }
 }
 
