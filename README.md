@@ -157,10 +157,16 @@ pnpm test:integration
 
 ## Deploying
 
-`render.yaml` is executable as written: a web service, a Docker worker (Docker
-because LibreOffice and Poppler are system packages), a migration job, Postgres
-16 and Redis. Every secret is `sync:false`, so it is entered once in the Render
-dashboard and never appears in this repository.
+`render.yaml` provisions a web service, a Docker worker (Docker because
+LibreOffice and Poppler are system packages), Postgres 16 and a Key Value
+instance. Migrations run as the web service's pre-deploy command. Every secret
+is `sync:false`, so it is entered once in the Render dashboard and never
+appears in this repository.
+
+The blueprint is not a one-click product: `APP_URL`, the S3 credentials, the
+OpenAI key and `SUPER_ADMIN_EMAILS` have to be filled in before the first
+deploy, and `SUPER_ADMIN_EMAILS` specifically has to be set *before* you
+register, because the role is granted at account creation.
 
 One thing is not optional: **object storage must be S3-compatible**. A Render
 disk belongs to one instance and does not survive a redeploy, so it cannot hold
@@ -168,12 +174,6 @@ a customer's documents. Point `STORAGE_DRIVER=s3` at a private bucket — S3, R2
 or B2 — and the durability probe will confirm it round-trips. Leave it on
 `local` in production and the same probe reports a `CRITICAL` failure, by
 design.
-
-Run migrations before promoting a release:
-
-```bash
-pnpm --filter @companion/db exec node dist/migrate.js
-```
 
 See [`docs/deployment.md`](docs/deployment.md) for the full sequence and
 [`docs/architecture.md`](docs/architecture.md) for how the pieces fit together.

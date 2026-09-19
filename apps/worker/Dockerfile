@@ -23,6 +23,11 @@ COPY packages/ai/package.json ./packages/ai/
 COPY packages/storage/package.json ./packages/storage/
 COPY packages/queue/package.json ./packages/queue/
 COPY packages/quality/package.json ./packages/quality/
+# Listed in pnpm-workspace.yaml, so its manifest has to be present for the
+# lockfile check even though the filter below installs none of its packages.
+COPY e2e/package.json ./e2e/
+# Nothing in this image runs a browser; Playwright must not fetch one.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN pnpm install --frozen-lockfile --filter @companion/worker...
 
 # ─── Build ───────────────────────────────────────────────────────────────────

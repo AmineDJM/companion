@@ -17,7 +17,12 @@ databases:
     databaseName: companion
     user: companion
     plan: standard
+    # Same region as the services. A database in another region adds a
+    # round trip to every query, and retrieval makes two per question.
+    region: frankfurt
     postgresMajorVersion: '16'
+    # Empty means "internal network only": nothing reaches it from the public
+    # internet, which is where customer documents are indexed.
     ipAllowList: []
 
 services:
@@ -38,6 +43,11 @@ services:
     region: frankfurt
     branch: main
     buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build:web
+    # Runs once per deploy, before the new release takes traffic. Migrations
+    # are plain SQL in one transaction each and recorded in schema_migrations,
+    # so a re-run is a no-op. A worker service would be restarted forever
+    # after it exited, which is why this is not one.
+    preDeployCommand: pnpm --filter @companion/db exec node dist/migrate.js
     startCommand: pnpm --filter @companion/web start
     healthCheckPath: /api/health
     autoDeploy: true
@@ -46,16 +56,19 @@ services:
         value: '22'
       - key: NODE_ENV
         value: production
+      # The e2e workspace pulls in Playwright; nothing on a server runs a
+      # browser, so its postinstall must not fetch one.
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: '1'
+      # The public origin recipients actually use. Share links, OAuth
+      # callbacks and Stripe returns are all built from it, so it must be the
+      # custom domain once you have one — not the onrender.com address.
+      # Set both before the first deploy: NEXT_PUBLIC_APP_URL is read at build
+      # time, so changing it later needs a rebuild, not just a restart.
       - key: APP_URL
-        fromService:
-          type: web
-          name: companion-web
-          envVarKey: RENDER_EXTERNAL_URL
+        sync: false
       - key: NEXT_PUBLIC_APP_URL
-        fromService:
-          type: web
-          name: companion-web
-          envVarKey: RENDER_EXTERNAL_URL
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: companion-postgres
@@ -144,11 +157,13 @@ services:
           type: web
           name: companion-web
           envVarKey: SESSION_SECRET
+      # The same origin the web service serves, so a link the worker writes
+      # into an email matches the one a recipient was given.
       - key: APP_URL
         fromService:
           type: web
           name: companion-web
-          envVarKey: RENDER_EXTERNAL_URL
+          envVarKey: APP_URL
       - key: STORAGE_DRIVER
         value: s3
       - key: S3_BUCKET
@@ -173,23 +188,3 @@ services:
         value: 'true'
       - key: LOG_LEVEL
         value: info
-
-  # ─── Migrations ───────────────────────────────────────────────────────────
-  # Run this before promoting a release. Migrations are plain SQL, applied one
-  # transaction each and recorded in schema_migrations, so re-running is safe.
-  - type: worker
-    name: companion-migrate
-    runtime: node
-    plan: starter
-    region: frankfurt
-    branch: main
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter @companion/db build
-    startCommand: pnpm --filter @companion/db exec node dist/migrate.js
-    autoDeploy: false
-    envVars:
-      - key: NODE_VERSION
-        value: '22'
-      - key: DATABASE_URL
-        fromDatabase:
-          name: companion-postgres
-          property: connectionString
