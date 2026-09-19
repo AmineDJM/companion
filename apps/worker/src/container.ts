@@ -1,4 +1,9 @@
-import { OpenAILunaProvider, type EmbeddingProvider } from '@companion/ai';
+import {
+  OpenAILunaProvider,
+  OpenAIVisionReader,
+  type DocumentVisionProvider,
+  type EmbeddingProvider,
+} from '@companion/ai';
 import { getDatabase, type Database } from '@companion/db';
 import { JobDispatcher, getRedis, type Redis } from '@companion/queue';
 import { resolve } from 'node:path';
@@ -12,6 +17,8 @@ export interface WorkerContainer {
   redis: Redis;
   jobs: JobDispatcher;
   embeddings: EmbeddingProvider | null;
+  /** Reads pages that have no usable embedded text. Replaces classical OCR. */
+  vision: DocumentVisionProvider | null;
   logger: Logger;
 }
 
@@ -53,10 +60,23 @@ export function container(): WorkerContainer {
       })
     : null;
 
+  const vision =
+    config.OPENAI_API_KEY && config.VISION_READING_ENABLED
+      ? new OpenAIVisionReader({
+          apiKey: config.OPENAI_API_KEY,
+          ...(config.OPENAI_BASE_URL ? { baseUrl: config.OPENAI_BASE_URL } : {}),
+          answerModel: config.OPENAI_ANSWER_MODEL,
+          visionModel: config.OPENAI_VISION_MODEL,
+        })
+      : null;
+
   if (!embeddings) {
     logger.warn('OPENAI_API_KEY is not set; documents will be indexed for keyword search only');
   }
+  if (!vision) {
+    logger.warn('page reading is disabled; scanned pages will not be indexed');
+  }
 
-  instance = { db, storage, redis, jobs: new JobDispatcher(redis), embeddings, logger };
+  instance = { db, storage, redis, jobs: new JobDispatcher(redis), embeddings, vision, logger };
   return instance;
 }

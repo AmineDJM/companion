@@ -220,10 +220,17 @@ export const analyticsEvents = pgTable(
     durationMs: integer('duration_ms'),
     /** Small, non-identifying context. Never document content. */
     metadata: jsonb('metadata').$type<Record<string, string | number | boolean>>(),
+    /**
+     * Stable key for this occurrence. A retry, a page refresh or a replayed
+     * request carrying the same key is stored once, so a customer's numbers
+     * cannot be inflated by anything other than real activity.
+     */
+    idempotencyKey: varchar('idempotency_key', { length: 120 }),
     occurredAt: ts('occurred_at').notNull(),
     createdAt: createdAt(),
   },
   (table) => [
+    uniqueIndex('analytics_events_idempotency_key').on(table.idempotencyKey),
     index('analytics_events_companion_idx').on(table.companionId, table.occurredAt),
     index('analytics_events_workspace_idx').on(table.workspaceId, table.occurredAt),
     index('analytics_events_type_idx').on(table.type),

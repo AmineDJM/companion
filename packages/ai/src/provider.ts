@@ -96,6 +96,41 @@ export interface DocumentAnswerProvider {
   health(): Promise<ProviderHealthResult>;
 }
 
+/**
+ * Reads a page that has no usable embedded text.
+ *
+ * This replaces classical OCR. A vision model reads a scanned page the way a
+ * person does — it handles layout, tables, multi-column text and poor scans far
+ * better than character recognition, and it does not hallucinate structure the
+ * way a low-confidence OCR pass silently does. The cost is roughly 2,600 input
+ * tokens per page, which is a fraction of a cent.
+ */
+export interface DocumentVisionRequest {
+  /** PNG or WebP bytes of the rendered page. */
+  image: Buffer;
+  mimeType: string;
+  /** 1-based page number, used only to describe the task to the model. */
+  page: number;
+  /** Hint about what kind of document this is, e.g. "contract", "slide". */
+  documentHint?: string | null;
+  signal?: AbortSignal;
+}
+
+export interface DocumentVisionResult {
+  text: string;
+  usage: ProviderUsage;
+  model: string;
+  latencyMs: number;
+  /** True when the model reported the page as genuinely blank. */
+  blank: boolean;
+}
+
+export interface DocumentVisionProvider {
+  readonly id: string;
+  readonly visionModel: string;
+  readPage(request: DocumentVisionRequest): Promise<DocumentVisionResult>;
+}
+
 export interface EmbeddingProvider {
   readonly id: string;
   readonly embeddingModel: string;

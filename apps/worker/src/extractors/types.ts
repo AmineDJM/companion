@@ -20,31 +20,27 @@ export interface ExtractedUnit {
 export interface ExtractionResult {
   units: ExtractedUnit[];
   pageCount: number | null;
-  /** True when OCR had to be used because the native text was unusable. */
-  usedOcr: boolean;
+  /** True when a page had to be read from its rendered image. */
+  usedVision: boolean;
   /** Non-fatal notes surfaced to the sender, e.g. "3 pages were scanned". */
   notes: string[];
+  /**
+   * Structural units the source container itself declares — the PDF page tree,
+   * the slide parts, the workbook sheets. Compared against what was parsed so
+   * a dropped page is caught rather than silently lost.
+   */
+  declaredUnits?: number;
+  /** Pages whose recovered text scored below the legibility threshold. */
+  lowConfidenceUnits?: number[];
+  /** Pages the reader reported as genuinely blank. */
+  blankUnits?: number;
 }
 
 export const EMPTY_EXTRACTION: ExtractionResult = {
   units: [],
   pageCount: null,
-  usedOcr: false,
+  usedVision: false,
   notes: [],
 };
 
-/**
- * Heuristic for "this page has no usable text".
- *
- * A scanned page usually yields a handful of stray glyphs rather than nothing,
- * so a character count alone is not enough — we also look at the proportion of
- * letters and the presence of real word shapes.
- */
-export function needsOcr(text: string, expectedMinimum = 40): boolean {
-  const trimmed = text.replace(/\s+/g, ' ').trim();
-  if (trimmed.length < expectedMinimum) return true;
-  const letters = (trimmed.match(/\p{L}/gu) ?? []).length;
-  if (letters / trimmed.length < 0.4) return true;
-  const words = trimmed.split(/\s+/).filter((word) => /\p{L}{3,}/u.test(word));
-  return words.length < 5;
-}
+

@@ -1,15 +1,18 @@
 import { createRequire } from 'node:module';
 import { normaliseWhitespace } from '@companion/ai';
-import { EMPTY_EXTRACTION, needsOcr, type ExtractedUnit, type ExtractionResult } from './types.js';
+import { needsVisionRead } from '@companion/quality';
+import { EMPTY_EXTRACTION, type ExtractedUnit, type ExtractionResult } from './types.js';
 
 const require = createRequire(import.meta.url);
 
 /**
  * PDF text extraction, one unit per page.
  *
- * Native text is always preferred; OCR is a fallback for pages that come back
- * empty or garbled (scans). pdf.js is loaded through its legacy Node build,
- * which needs no canvas and no DOM.
+ * Embedded text is always preferred: it is exact and free. A page whose
+ * embedded text is missing or garbled — a scan, or a PDF with broken encoding —
+ * is handed to the page reader, which reads the rendered image with the vision
+ * model. pdf.js is loaded through its legacy Node build, so no canvas and no
+ * DOM are required.
  */
 interface PdfTextItem {
   str?: string;
@@ -17,9 +20,21 @@ interface PdfTextItem {
   hasEOL?: boolean;
 }
 
+export interface PdfExtractionOptions {
+  maxPages: number;
+  /**
+   * Reads a page that has no usable embedded text. Returns the recovered text
+   * and a deterministic legibility score, or null when no reader is available.
+   */
+  readPage?: (
+    page: number,
+    embeddedText: string,
+  ) => Promise<{ text: string; score: number; usedVision: boolean; blank: boolean } | null>;
+}
+
 export async function extractPdf(
   buffer: Buffer,
-  options: { maxPages: number; ocr?: (page: number) => Promise<string | null> },
+  options: PdfExtractionOptions,
 ): Promise<ExtractionResult> {
   const pdfjs = require('pdfjs-dist/legacy/build/pdf.mjs') as {
     getDocument: (params: Record<string, unknown>) => { promise: Promise<PdfDocument> };
@@ -43,8 +58,10 @@ export async function extractPdf(
   const pageCount = Math.min(document.numPages, options.maxPages);
   const units: ExtractedUnit[] = [];
   const notes: string[] = [];
-  let usedOcr = false;
-  let scannedPages = 0;
+  const lowConfidencePages: number[] = [];
+  let usedVision = false;
+  let readPages = 0;
+  let blankPages = 0;
 
   for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
     let text = '';
@@ -57,12 +74,19 @@ export async function extractPdf(
       notes.push(`Page ${pageNumber} could not be read.`);
     }
 
-    if (needsOcr(text) && options.ocr) {
-      const recognised = await options.ocr(pageNumber);
-      if (recognised && recognised.trim().length > text.trim().length) {
-        text = recognised;
-        usedOcr = true;
-        scannedPages += 1;
+    if (needsVisionRead(text) && options.readPage) {
+      const recovered = await options.readPage(pageNumber, text);
+      if (recovered?.usedVision) {
+        usedVision = true;
+        readPages += 1;
+        if (recovered.blank) {
+          blankPages += 1;
+        } else if (recovered.text.trim().length > 0) {
+          text = recovered.text;
+        }
+        // A page read below the legibility threshold is recorded rather than
+        // silently accepted: the ingestion metric decides what happens next.
+        if (!recovered.blank && recovered.score < 0.75) lowConfidencePages.push(pageNumber);
       }
     }
 
@@ -84,12 +108,27 @@ export async function extractPdf(
   if (document.numPages > options.maxPages) {
     notes.push(`Only the first ${options.maxPages} pages were indexed.`);
   }
-  if (scannedPages > 0) {
-    notes.push(`${scannedPages} scanned ${scannedPages === 1 ? 'page was' : 'pages were'} read with text recognition.`);
+  if (readPages > 0) {
+    notes.push(
+      `${readPages} scanned ${readPages === 1 ? 'page was' : 'pages were'} read from the page image.`,
+    );
+  }
+  if (lowConfidencePages.length > 0) {
+    notes.push(
+      `${lowConfidencePages.length} ${lowConfidencePages.length === 1 ? 'page was' : 'pages were'} hard to read; answers from ${lowConfidencePages.length === 1 ? 'it' : 'them'} may be incomplete.`,
+    );
   }
 
   await document.destroy?.();
-  return { units, pageCount: document.numPages, usedOcr, notes };
+  return {
+    units,
+    pageCount: document.numPages,
+    usedVision,
+    notes,
+    declaredUnits: document.numPages,
+    lowConfidenceUnits: lowConfidencePages,
+    blankUnits: blankPages,
+  };
 }
 
 interface PdfDocument {

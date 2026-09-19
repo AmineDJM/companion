@@ -16,6 +16,7 @@ import { assignTopic, makeLocator, makeSourceId, type RetrievedSource } from '@c
 import { eq, schema, sql } from '@companion/db';
 import { getContainer } from '../container';
 import { recordAnalyticsEvent } from './analytics';
+import { measureSourceExposure, verifyAnswer } from './answer-quality';
 import { platformLimits } from './entitlements';
 import { assertCanAskQuestion, type WorkspaceQuotaContext } from './quota';
 import { checkRateLimit } from './rate-limit';
@@ -156,6 +157,7 @@ export async function ask(input: AskInput): Promise<AskResult> {
       : activeExcerpt(input.companion.id, input.context.fileId, input.context.page),
   ]);
 
+  const retrievalStarted = Date.now();
   const retrieval = await retrieve({
     companionId: input.companion.id,
     question: input.question,
@@ -164,9 +166,10 @@ export async function ask(input: AskInput): Promise<AskResult> {
     activePage: input.context.page,
     fileCount: fileNames.length,
   });
+  const retrievalLatencyMs = Date.now() - retrievalStarted;
 
   const questionId = await persistQuestion(input, conversationId, classification, false);
-  await recordRetrievalDiagnostics(questionId, input.companion.id, retrieval);
+  await recordRetrievalDiagnostics(questionId, input.companion.id, retrieval, retrievalLatencyMs);
 
   // Nothing relevant was found: say so rather than letting the model improvise.
   if (retrieval.chunks.length === 0) {
@@ -295,17 +298,43 @@ export async function ask(input: AskInput): Promise<AskResult> {
     confidence: retrieval.topScore,
   });
 
-  await persistExtractionState(
-    input.session.id,
-    nextExtractionState(input.session.extraction, {
-      wasExtractionAttempt: classification.intent !== 'none',
-      quotedCharacters: resolution.quotedCharacters,
-      quotedUnitIds: resolution.quotedUnitIds,
-      answerDelivered: true,
-    }),
-  );
+  const extraction = nextExtractionState(input.session.extraction, {
+    wasExtractionAttempt: classification.intent !== 'none',
+    quotedCharacters: resolution.quotedCharacters,
+    quotedUnitIds: resolution.quotedUnitIds,
+    answerDelivered: true,
+  });
+  await persistExtractionState(input.session.id, extraction);
 
   await afterQuestion(input, questionId, grounded);
+
+  // Verification runs after the answer is durable, so evidence gathering can
+  // never delay or fail a recipient's reply.
+  await verifyAnswer({
+    workspaceId: input.companion.workspaceId,
+    companionId: input.companion.id,
+    questionId,
+    answer: answerText,
+    answered: grounded,
+    claimedSourceIds: resolution.claimedSourceIds,
+    validSourceIds: new Set(sourceById.keys()),
+    quotes: resolution.quotes,
+    citations: resolution.citations,
+    evidence: sources.map((source) => source.text).join('\n\n'),
+  }).catch((error: unknown) => {
+    logger.error('answer verification failed', { questionId, error });
+  });
+
+  await measureSourceExposure({
+    workspaceId: input.companion.workspaceId,
+    companionId: input.companion.id,
+    sessionId: input.session.id,
+    quotedCharactersTotal: extraction.quotedCharacters,
+    documentCharacters: await companionCharacterCount(input.companion.id),
+    mode: input.companion.sourceProtectionMode,
+  }).catch((error: unknown) => {
+    logger.error('source exposure measurement failed', { questionId, error });
+  });
 
   return {
     questionId,
@@ -356,6 +385,10 @@ interface CitationResolution {
   citations: ResolvedCitation[];
   quotedCharacters: number;
   quotedUnitIds: string[];
+  /** Every source id the model claimed, including ones that did not exist. */
+  claimedSourceIds: string[];
+  /** One entry per quote the model offered, and whether it survived checking. */
+  quotes: { verified: boolean }[];
 }
 
 /**
@@ -374,9 +407,11 @@ function resolveCitations(input: {
 }): CitationResolution {
   const valid = new Set(input.sourceById.keys());
   const sanitised = sanitiseCitations(input.answer.citations, valid);
+  const claimedSourceIds = input.answer.citations.map((citation) => citation.source_id);
 
   const citations: ResolvedCitation[] = [];
   const quotedUnitIds: string[] = [];
+  const quotes: { verified: boolean }[] = [];
   let quotedCharacters = 0;
 
   for (const [index, citation] of sanitised.entries()) {
@@ -387,6 +422,7 @@ function resolveCitations(input: {
     if (citation.quote) {
       // A quote the model did not actually take from this chunk is discarded.
       const verified = verifyQuote(citation.quote, chunk.text);
+      quotes.push({ verified: verified !== null });
       if (verified) {
         const enforced = enforceQuoteLimit(
           verified,
@@ -426,7 +462,7 @@ function resolveCitations(input: {
     });
   }
 
-  return { citations, quotedCharacters, quotedUnitIds };
+  return { citations, quotedCharacters, quotedUnitIds, claimedSourceIds, quotes };
 }
 
 /**
@@ -631,6 +667,7 @@ async function recordRetrievalDiagnostics(
   questionId: string,
   companionId: string,
   retrieval: { topScore: number; chunks: { fileId: string }[]; contextTokens: number; complex: boolean },
+  latencyMs: number,
 ): Promise<void> {
   const { db } = getContainer();
   await db.insert(schema.retrievalDiagnostics).values({
@@ -641,6 +678,7 @@ async function recordRetrievalDiagnostics(
     contextTokens: retrieval.contextTokens,
     fileIds: [...new Set(retrieval.chunks.map((chunk) => chunk.fileId))],
     complex: retrieval.complex,
+    latencyMs,
   });
 }
 
@@ -682,4 +720,18 @@ async function afterQuestion(
     fileId: input.context.fileId,
     page: input.context.page,
   });
+}
+
+/**
+ * Total extractable characters in a Companion, cached per request path by the
+ * database's own planner rather than in memory: it changes only when content is
+ * replaced, and a stale value would understate exposure.
+ */
+async function companionCharacterCount(companionId: string): Promise<number> {
+  const { db } = getContainer();
+  const rows = await db
+    .select({ value: sql<number>`coalesce(sum(${schema.documentUnits.characterCount}), 0)::int` })
+    .from(schema.documentUnits)
+    .where(eq(schema.documentUnits.companionId, companionId));
+  return rows[0]?.value ?? 0;
 }

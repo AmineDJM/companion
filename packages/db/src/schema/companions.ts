@@ -212,9 +212,23 @@ export const fileVersions = pgTable(
     pageCount: integer('page_count'),
     /** True once text extraction, chunking and embedding all succeeded. */
     indexedAt: ts('indexed_at'),
-    /** Whether OCR was needed, for support diagnostics. */
-    usedOcr: boolean('used_ocr').notNull().default(false),
+    /** True when a page had to be read from its rendered image. */
+    usedVision: boolean('used_vision').notNull().default(false),
     textCharacters: integer('text_characters').notNull().default(0),
+    /** SHA-256 recorded at upload; re-verified whenever the object is read. */
+    verifiedHashAt: ts('verified_hash_at'),
+    /** Structural units the source container itself declares. */
+    declaredUnits: integer('declared_units'),
+    /** Units the parser actually produced. */
+    parsedUnits: integer('parsed_units'),
+    /** Rendered preview pages, for the parity check. */
+    previewUnits: integer('preview_units'),
+    /** Pages whose recovered text scored below the legibility threshold. */
+    lowConfidenceUnits: jsonb('low_confidence_units').$type<number[]>().notNull().default([]),
+    /** Share of extracted text reachable through at least one indexed passage. */
+    indexCoverage: real('index_coverage'),
+    /** Version of the processing pipeline that produced this version's index. */
+    processingVersion: varchar('processing_version', { length: 32 }),
     uploadedByUserId: uuid('uploaded_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -421,7 +435,12 @@ export const retrievalDiagnostics = pgTable(
     contextTokens: integer('context_tokens').notNull().default(0),
     fileIds: jsonb('file_ids').$type<string[]>().notNull().default([]),
     complex: boolean('complex').notNull().default(false),
+    /** Time spent searching, separate from the model's own latency. */
+    latencyMs: integer('latency_ms').notNull().default(0),
     createdAt: createdAt(),
   },
-  (table) => [index('retrieval_diagnostics_companion_idx').on(table.companionId)],
+  (table) => [
+    index('retrieval_diagnostics_companion_idx').on(table.companionId),
+    index('retrieval_diagnostics_created_idx').on(table.createdAt),
+  ],
 );

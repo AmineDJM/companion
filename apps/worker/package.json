@@ -13,6 +13,7 @@
   "dependencies": {
     "@companion/ai": "workspace:*",
     "@companion/db": "workspace:*",
+    "@companion/quality": "workspace:*",
     "@companion/queue": "workspace:*",
     "@companion/shared": "workspace:*",
     "@companion/storage": "workspace:*",

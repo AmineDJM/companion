@@ -1,0 +1,81 @@
+{
+  "domain": "performance",
+  "description": "Latency and reliability of the paths a recipient and a sender actually wait on.",
+  "metrics": [
+    {
+      "metricId": "performance.retrieval_latency_p95_ms",
+      "description": "95th percentile time to assemble the evidence for a question.",
+      "measurementMethod": "Measured from question receipt to the retrieved passage set being ready, including the question embedding.",
+      "unit": "milliseconds",
+      "comparison": "lte",
+      "target": 400,
+      "warningThreshold": 800,
+      "failureThreshold": 2000,
+      "severity": "WARNING",
+      "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
+      "standardReference": null,
+      "repairStrategy": "manual_investigation",
+      "minimumSampleSize": 20
+    },
+    {
+      "metricId": "performance.answer_latency_p95_ms",
+      "description": "95th percentile total time from question to displayed answer.",
+      "measurementMethod": "Measured end to end across the answer path and recorded on the usage ledger.",
+      "unit": "milliseconds",
+      "comparison": "lte",
+      "target": 4000,
+      "warningThreshold": 6000,
+      "failureThreshold": 12000,
+      "severity": "WARNING",
+      "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
+      "standardReference": null,
+      "repairStrategy": "manual_investigation",
+      "minimumSampleSize": 20
+    },
+    {
+      "metricId": "performance.job_success_rate",
+      "description": "Share of processing jobs that complete without exhausting their retries.",
+      "measurementMethod": "Completed jobs divided by terminal jobs over the window, per job type.",
+      "unit": "ratio",
+      "comparison": "gte",
+      "target": 1,
+      "warningThreshold": 0.98,
+      "failureThreshold": 0.9,
+      "severity": "WARNING",
+      "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
+      "standardReference": null,
+      "repairStrategy": "requeue_job",
+      "minimumSampleSize": 20
+    },
+    {
+      "metricId": "performance.stuck_jobs",
+      "description": "Jobs that have been running far longer than their type's 99th percentile.",
+      "measurementMethod": "Count jobs in RUNNING whose start is older than ten times the type's P99 duration, or older than thirty minutes when no history exists.",
+      "unit": "count",
+      "comparison": "eq",
+      "target": 0,
+      "warningThreshold": 0,
+      "failureThreshold": 5,
+      "severity": "WARNING",
+      "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
+      "standardReference": null,
+      "repairStrategy": "requeue_job",
+      "minimumSampleSize": 0
+    },
+    {
+      "metricId": "performance.worker_liveness",
+      "description": "At least one worker has reported a heartbeat recently.",
+      "measurementMethod": "1 when a worker heartbeat is newer than sixty seconds, otherwise 0.",
+      "unit": "boolean",
+      "comparison": "eq",
+      "target": 1,
+      "warningThreshold": null,
+      "failureThreshold": 1,
+      "severity": "CRITICAL",
+      "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
+      "standardReference": null,
+      "repairStrategy": "manual_investigation",
+      "minimumSampleSize": 0
+    }
+  ]
+}

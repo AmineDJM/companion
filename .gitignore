@@ -19,3 +19,5 @@ tmp/
 *.log
 .pnpm-store/
 AGENTS.md
+
+dump.rdb

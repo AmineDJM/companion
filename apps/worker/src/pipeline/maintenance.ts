@@ -1,5 +1,7 @@
 import { and, eq, isNull, lte, schema, sql } from '@companion/db';
+import { measure } from '../lib/quality.js';
 import { container } from '../container.js';
+import { runStorageIntegritySweep } from './integrity.js';
 
 /**
  * Periodic housekeeping.
@@ -15,6 +17,9 @@ export async function runMaintenance(): Promise<void> {
     purgeExpiredSessions(),
     purgeExpiredDrafts(),
     refreshDailyRollups(),
+    runStorageIntegritySweep(),
+    recordJobReliability(),
+    recordLatencyPercentiles(),
   ]);
 }
 
@@ -130,4 +135,120 @@ async function refreshDailyRollups(): Promise<void> {
       total_cost_usd = EXCLUDED.total_cost_usd,
       updated_at = now()
   `);
+}
+
+/**
+ * Background job reliability.
+ *
+ * Measured from the job records rather than from the queue, because the record
+ * is what survives a worker restart. A job that has been RUNNING far longer
+ * than any real document takes is stuck, and a stuck job is a Companion that
+ * never becomes readable — a silent failure no HTTP status would reveal.
+ */
+async function recordJobReliability(): Promise<void> {
+  const { db } = container();
+
+  const window = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      succeeded: sql<number>`count(*) FILTER (WHERE ${schema.processingJobs.status} IN ('COMPLETED', 'SKIPPED'))::int`,
+      failed: sql<number>`count(*) FILTER (WHERE ${schema.processingJobs.status} = 'FAILED')::int`,
+      p95DurationMs: sql<number>`coalesce(percentile_disc(0.95) WITHIN GROUP (ORDER BY ${schema.processingJobs.durationMs}), 0)::int`,
+    })
+    .from(schema.processingJobs)
+    .where(sql`${schema.processingJobs.createdAt} >= now() - interval '24 hours'`);
+
+  const terminal = (window[0]?.succeeded ?? 0) + (window[0]?.failed ?? 0);
+  if (terminal > 0) {
+    await measure('performance.job_success_rate', {
+      value: (window[0]?.succeeded ?? 0) / terminal,
+      sampleSize: terminal,
+      evidence: {
+        windowHours: 24,
+        totalJobs: window[0]?.total ?? 0,
+        failedJobs: window[0]?.failed ?? 0,
+        p95DurationMs: window[0]?.p95DurationMs ?? 0,
+      },
+    });
+  }
+
+  const stuck = await db
+    .select({
+      value: sql<number>`count(*)::int`,
+      types: sql<string[]>`coalesce(array_agg(DISTINCT ${schema.processingJobs.type}), ARRAY[]::text[])`,
+    })
+    .from(schema.processingJobs)
+    .where(
+      and(
+        eq(schema.processingJobs.status, 'RUNNING'),
+        sql`${schema.processingJobs.startedAt} < now() - interval '30 minutes'`,
+      ),
+    );
+
+  await measure('performance.stuck_jobs', {
+    value: stuck[0]?.value ?? 0,
+    evidence: { thresholdMinutes: 30, jobTypes: stuck[0]?.types ?? [] },
+  });
+
+  const live = await db
+    .select({ value: sql<number>`count(*)::int` })
+    .from(schema.workerHeartbeats)
+    .where(sql`${schema.workerHeartbeats.lastBeatAt} >= now() - interval '2 minutes'`);
+
+  await measure('performance.worker_liveness', {
+    value: (live[0]?.value ?? 0) > 0 ? 1 : 0,
+    evidence: { liveWorkers: live[0]?.value ?? 0, staleAfterSeconds: 120 },
+  });
+}
+
+/**
+ * Served latency.
+ *
+ * Percentiles over the last day, computed in the database from the rows the
+ * request path already wrote. Retrieval and answering are reported separately
+ * because they fail for different reasons: a slow index is a schema problem,
+ * a slow model is a provider or prompt-size problem.
+ */
+async function recordLatencyPercentiles(): Promise<void> {
+  const { db } = container();
+
+  const retrieval = await db
+    .select({
+      p95: sql<number>`coalesce(percentile_disc(0.95) WITHIN GROUP (ORDER BY ${schema.retrievalDiagnostics.latencyMs}), 0)::int`,
+      p50: sql<number>`coalesce(percentile_disc(0.5) WITHIN GROUP (ORDER BY ${schema.retrievalDiagnostics.latencyMs}), 0)::int`,
+      samples: sql<number>`count(*)::int`,
+    })
+    .from(schema.retrievalDiagnostics)
+    .where(sql`${schema.retrievalDiagnostics.createdAt} >= now() - interval '24 hours'`);
+
+  if ((retrieval[0]?.samples ?? 0) > 0) {
+    await measure('performance.retrieval_latency_p95_ms', {
+      value: retrieval[0]?.p95 ?? 0,
+      sampleSize: retrieval[0]?.samples ?? 0,
+      evidence: { windowHours: 24, p50Ms: retrieval[0]?.p50 ?? 0 },
+    });
+  }
+
+  const answers = await db
+    .select({
+      p95: sql<number>`coalesce(percentile_disc(0.95) WITHIN GROUP (ORDER BY ${schema.usageLedger.latencyMs}), 0)::int`,
+      p50: sql<number>`coalesce(percentile_disc(0.5) WITHIN GROUP (ORDER BY ${schema.usageLedger.latencyMs}), 0)::int`,
+      samples: sql<number>`count(*)::int`,
+    })
+    .from(schema.usageLedger)
+    .where(
+      and(
+        eq(schema.usageLedger.requestKind, 'answer'),
+        eq(schema.usageLedger.succeeded, true),
+        sql`${schema.usageLedger.occurredAt} >= now() - interval '24 hours'`,
+      ),
+    );
+
+  if ((answers[0]?.samples ?? 0) > 0) {
+    await measure('performance.answer_latency_p95_ms', {
+      value: answers[0]?.p95 ?? 0,
+      sampleSize: answers[0]?.samples ?? 0,
+      evidence: { windowHours: 24, p50Ms: answers[0]?.p50 ?? 0 },
+    });
+  }
 }

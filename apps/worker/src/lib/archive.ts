@@ -70,7 +70,7 @@ export async function extractArchive(
         );
       }
 
-      const rawPath = entry.fileName;
+      const rawPath = decodeEntryName(entry.fileName);
 
       // Directory markers carry no content.
       if (rawPath.endsWith('/')) continue;
@@ -117,16 +117,23 @@ export async function extractArchive(
         continue;
       }
 
-      const bytes = await readEntry(zip, entry, declaredSize);
+      // A crafted central directory can understate an entry's size to slip
+      // past the expansion cap, so the read is bounded by what the compressed
+      // bytes could honestly produce and by the archive's remaining budget.
+      const honestCeiling = Math.max(
+        Math.ceil(entry.compressedSize * limits.maxCompressionRatio),
+        64 * 1024,
+      );
+      const ceiling = Math.min(
+        Math.max(declaredSize + 4096, honestCeiling),
+        limits.maxArchiveExtractedBytes - totalUncompressed + 1,
+      );
 
-      // The real size can differ from the declared one in a crafted archive.
-      if (bytes.byteLength !== declaredSize) {
-        totalUncompressed += bytes.byteLength;
-        if (totalUncompressed > limits.maxArchiveExtractedBytes) {
-          throw new ArchiveRejectedError('This archive expands to more than the allowed size.');
-        }
-      } else {
-        totalUncompressed += declaredSize;
+      const bytes = await readEntry(zip, entry, ceiling, safePath);
+
+      totalUncompressed += bytes.byteLength;
+      if (totalUncompressed > limits.maxArchiveExtractedBytes) {
+        throw new ArchiveRejectedError('This archive expands to more than the allowed size.');
       }
 
       if (looksExecutable(bytes.subarray(0, 8))) {
@@ -147,13 +154,29 @@ export async function extractArchive(
 
 function openZip(buffer: Buffer): Promise<ZipFile> {
   return new Promise((resolve, reject) => {
-    yauzl.fromBuffer(buffer, { lazyEntries: true, autoClose: false }, (error, zipfile) => {
-      if (error || !zipfile) {
-        reject(new ArchiveRejectedError('This archive could not be opened.'));
-        return;
-      }
-      resolve(zipfile);
-    });
+    // `decodeStrings: false` turns off yauzl's own filename validation, which
+    // aborts the entire archive on the first suspicious entry. We want the
+    // opposite: reject the individual entry and keep the rest, so names are
+    // decoded and validated here instead — more strictly than yauzl does.
+    yauzl.fromBuffer(
+      buffer,
+      {
+        lazyEntries: true,
+        autoClose: false,
+        decodeStrings: false,
+        // yauzl aborts the whole archive when an entry's real size disagrees
+        // with its declared size. We enforce that ourselves, per entry, so a
+        // single hostile file cannot cost the sender the rest of the upload.
+        validateEntrySizes: false,
+      },
+      (error, zipfile) => {
+        if (error || !zipfile) {
+          reject(new ArchiveRejectedError('This archive could not be opened.'));
+          return;
+        }
+        resolve(zipfile);
+      },
+    );
   });
 }
 
@@ -201,31 +224,59 @@ async function* iterateEntries(zip: ZipFile): AsyncGenerator<Entry> {
   }
 }
 
-function readEntry(zip: ZipFile, entry: Entry, expectedSize: number): Promise<Buffer> {
+function readEntry(
+  zip: ZipFile,
+  entry: Entry,
+  ceiling: number,
+  path: string,
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     zip.openReadStream(entry, (error, stream) => {
       if (error || !stream) {
-        reject(new ArchiveRejectedError(`Could not read ${entry.fileName}.`));
+        reject(new ArchiveRejectedError(`Could not read ${path}.`));
         return;
       }
       const chunks: Buffer[] = [];
       let total = 0;
-      // Hard stop: a lying central directory cannot make us read unbounded data.
-      const ceiling = Math.max(expectedSize * 2, 8 * 1024 * 1024);
+      let settled = false;
 
       stream.on('data', (chunk: Buffer) => {
+        if (settled) return;
         total += chunk.byteLength;
         if (total > ceiling) {
+          settled = true;
           stream.destroy();
-          reject(new ArchiveRejectedError('An archive entry is larger than it declared.'));
+          reject(
+            new ArchiveRejectedError(`${path} is larger than it declared in the archive.`),
+          );
           return;
         }
         chunks.push(chunk);
       });
-      stream.on('end', () => resolve(Buffer.concat(chunks)));
-      stream.on('error', () => reject(new ArchiveRejectedError(`Could not read ${entry.fileName}.`)));
+      stream.on('end', () => {
+        if (!settled) {
+          settled = true;
+          resolve(Buffer.concat(chunks));
+        }
+      });
+      stream.on('error', () => {
+        if (!settled) {
+          settled = true;
+          reject(new ArchiveRejectedError(`Could not read ${path}.`));
+        }
+      });
     });
   });
+}
+
+/**
+ * With `decodeStrings: false`, yauzl hands back the raw filename bytes. ZIP
+ * stores names as UTF-8 when bit 11 of the general-purpose flags is set, and
+ * as CP437 otherwise; UTF-8 decoding is a safe superset for our purposes since
+ * the result is validated character by character afterwards.
+ */
+function decodeEntryName(fileName: string | Buffer): string {
+  return Buffer.isBuffer(fileName) ? fileName.toString('utf8') : fileName;
 }
 
 /** yauzl exposes the unix mode in the high 16 bits of externalFileAttributes. */

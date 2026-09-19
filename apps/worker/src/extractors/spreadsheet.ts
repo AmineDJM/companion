@@ -109,7 +109,14 @@ export async function extractSpreadsheet(
     if (truncated) notes.push(`Only the first ${MAX_ROWS} rows of "${sheetName}" were indexed.`);
   });
 
-  return { units, pageCount: preview.sheets.length, usedOcr: false, notes, preview };
+  return {
+    units,
+    pageCount: preview.sheets.length,
+    usedVision: false,
+    notes,
+    preview,
+    declaredUnits: workbook.worksheets.length,
+  };
 }
 
 function readCell(cell: ExcelJS.Cell): string | number | null {
@@ -181,7 +188,7 @@ export function extractDelimited(
   return {
     units,
     pageCount: 1,
-    usedOcr: false,
+    usedVision: false,
     notes: [],
     preview: {
       sheets: [{ name, columns: header, rows: rows.slice(0, 500), truncated: rows.length > 500 }],

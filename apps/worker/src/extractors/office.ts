@@ -31,7 +31,7 @@ export async function extractDocx(buffer: Buffer): Promise<ExtractionResult> {
     text: section.text,
   }));
 
-  return { units, pageCount: null, usedOcr: false, notes: [] };
+  return { units, pageCount: null, usedVision: false, notes: [] };
 }
 
 /**
@@ -119,7 +119,13 @@ export async function extractPptx(buffer: Buffer): Promise<ExtractionResult> {
     });
   }
 
-  return { units, pageCount: units.length, usedOcr: false, notes: [] };
+  return {
+    units,
+    pageCount: units.length,
+    usedVision: false,
+    notes: [],
+    declaredUnits: slideNumbers.size,
+  };
 }
 
 /**

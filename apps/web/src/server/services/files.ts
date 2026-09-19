@@ -571,7 +571,8 @@ export interface FileVersionRecord {
   originalFilename: string;
   pageCount: number | null;
   indexedAt: Date | null;
-  usedOcr: boolean;
+  /** True when a page had to be read from its rendered image. */
+  usedVision: boolean;
   supersededAt: Date | null;
   createdAt: Date;
 }

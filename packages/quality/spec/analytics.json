@@ -1,0 +1,51 @@
+{
+  "domain": "analytics",
+  "description": "Whether reported numbers reconcile exactly to the recorded events, and whether one customer's figures can ever contain another's.",
+  "metrics": [
+    {
+      "metricId": "analytics.reconciliation_errors",
+      "description": "Reported metrics that do not equal the value derived from raw events.",
+      "measurementMethod": "For each metric with a declared formula, recompute from the event table and compare against the served figure. Any difference counts.",
+      "unit": "count",
+      "comparison": "eq",
+      "target": 0,
+      "warningThreshold": null,
+      "failureThreshold": 0,
+      "severity": "HARD_FAIL",
+      "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
+      "standardReference": null,
+      "repairStrategy": "manual_investigation",
+      "minimumSampleSize": 0
+    },
+    {
+      "metricId": "analytics.tenant_contamination",
+      "description": "Events from one workspace appearing in another workspace's figures.",
+      "measurementMethod": "Seed two workspaces with distinguishable events, then assert each tenant-scoped query returns exactly its own and that the platform-wide query returns the union.",
+      "unit": "count",
+      "comparison": "eq",
+      "target": 0,
+      "warningThreshold": null,
+      "failureThreshold": 0,
+      "severity": "CRITICAL",
+      "thresholdOrigin": "SECURITY_REQUIREMENT",
+      "standardReference": null,
+      "repairStrategy": "manual_investigation",
+      "minimumSampleSize": 0
+    },
+    {
+      "metricId": "analytics.duplicate_events",
+      "description": "Events counted more than once because of a retry, refresh or replay.",
+      "measurementMethod": "Submit the same event with the same idempotency key repeatedly and count how many rows are persisted beyond the first.",
+      "unit": "count",
+      "comparison": "eq",
+      "target": 0,
+      "warningThreshold": null,
+      "failureThreshold": 0,
+      "severity": "HARD_FAIL",
+      "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
+      "standardReference": null,
+      "repairStrategy": "manual_investigation",
+      "minimumSampleSize": 0
+    }
+  ]
+}

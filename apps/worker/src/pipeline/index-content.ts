@@ -4,7 +4,8 @@ import { and, asc, eq, inArray, isNull, schema, sql } from '@companion/db';
 import type { ChunkJob, EmbedJob } from '@companion/queue';
 import { container } from '../container.js';
 import { chainJob, setFileStatus, setProgress, updateCompanionProgress } from '../lib/jobs.js';
-import { loadFileVersion } from './ingest.js';
+import { loadFileVersion, type FileVersionContext } from './ingest.js';
+import { recordEmbeddingCompleteness, recordIndexCoverage } from './fidelity.js';
 
 /**
  * Chunking and embedding.
@@ -128,7 +129,7 @@ export async function handleEmbed(job: EmbedJob): Promise<void> {
   if (!embeddings) {
     // Without a provider the Companion still works on keyword search alone.
     logger.warn('no embedding provider; indexing lexically only', { fileId: version.fileId });
-    await completeFile(version.fileId, version.fileVersionId);
+    await completeFile(version, { embedded: false });
     await chainJob('finalize_companion', {
       workspaceId: version.workspaceId,
       companionId: version.companionId,
@@ -207,7 +208,7 @@ export async function handleEmbed(job: EmbedJob): Promise<void> {
     }
   }
 
-  await completeFile(version.fileId, version.fileVersionId);
+  await completeFile(version, { embedded: true });
   await chainJob('finalize_companion', {
     workspaceId: version.workspaceId,
     companionId: version.companionId,
@@ -215,19 +216,36 @@ export async function handleEmbed(job: EmbedJob): Promise<void> {
   });
 }
 
-async function completeFile(fileId: string, fileVersionId: string): Promise<void> {
+async function completeFile(
+  version: FileVersionContext,
+  options: { embedded: boolean },
+): Promise<void> {
   const { db } = container();
   await db
     .update(schema.fileVersions)
     .set({ indexedAt: new Date() })
-    .where(eq(schema.fileVersions.id, fileVersionId));
+    .where(eq(schema.fileVersions.id, version.fileVersionId));
 
   const pageRows = await db
     .select({ value: sql<number>`count(*)::int` })
     .from(schema.documentUnits)
-    .where(eq(schema.documentUnits.fileVersionId, fileVersionId));
+    .where(eq(schema.documentUnits.fileVersionId, version.fileVersionId));
 
-  await setFileStatus(fileId, 'READY', { pageCount: pageRows[0]?.value ?? null });
+  // The index is only finished if every extracted character can be reached
+  // through it. This is measured against the stored chunks, not assumed from
+  // the fact that chunking returned without throwing.
+  const target = {
+    fileVersionId: version.fileVersionId,
+    companionId: version.companionId,
+    workspaceId: version.workspaceId,
+    fileName: version.filename,
+  };
+  await recordIndexCoverage(target);
+  // Without a provider the Companion is lexical-only by design, so measuring
+  // vector completeness would record a failure the operator did not cause.
+  if (options.embedded) await recordEmbeddingCompleteness(target);
+
+  await setFileStatus(version.fileId, 'READY', { pageCount: pageRows[0]?.value ?? null });
 }
 
 export { estimateTokens };

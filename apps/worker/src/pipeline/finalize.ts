@@ -2,6 +2,7 @@ import { unansweredInsight } from '@companion/ai';
 import { and, eq, isNull, schema, sql } from '@companion/db';
 import type { ClusterQuestionsJob, FinalizeCompanionJob, PurgeCompanionJob } from '@companion/queue';
 import { container } from '../container.js';
+import { recordIngestionSuccessRate } from './fidelity.js';
 
 /**
  * Finalisation.
@@ -86,6 +87,9 @@ export async function handleFinalize(job: FinalizeCompanionJob): Promise<void> {
         sql`${schema.companions.status} IN ('PROCESSING', 'DRAFT', 'FAILED')`,
       ),
     );
+
+  // Recorded once per build, when every file has reached a terminal state.
+  await recordIngestionSuccessRate(job.companionId);
 }
 
 /** Chooses the document a recipient opens first, if the sender has not. */

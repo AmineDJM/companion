@@ -1,0 +1,5 @@
+{
+  "version": "1.0.0",
+  "updatedAt": "2026-09-19",
+  "notes": "The version of this specification is recorded on every stored evaluation. Raise the minor version when a metric is added, and the major version when a threshold is tightened, so a regression can be attributed to the system rather than to a change in the yardstick."
+}

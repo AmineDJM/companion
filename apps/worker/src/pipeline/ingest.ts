@@ -5,7 +5,7 @@ import {
   type DocumentKind,
   type PlatformLimits,
 } from '@companion/shared';
-import { eq, schema } from '@companion/db';
+import { and, eq, schema } from '@companion/db';
 import {
   extractedTextKey,
   normalizedPdfKey,
@@ -16,18 +16,18 @@ import {
 import type { ConvertPreviewJob, ExtractTextJob, IngestUploadJob } from '@companion/queue';
 import { container } from '../container.js';
 import { env } from '../env.js';
-import {
-  convertToPdf,
-  makeThumbnail,
-  normaliseImage,
-  ocrImage,
-  rasterisePageForOcr,
-  rasterisePdf,
-} from '../lib/convert.js';
+import { convertToPdf, makeThumbnail, normaliseImage, rasterisePageForOcr, rasterisePdf } from '../lib/convert.js';
+import { readPage } from '../lib/page-reader.js';
 import { chainJob, failFile, setFileStatus, setProgress, updateCompanionProgress } from '../lib/jobs.js';
 import { extractPdf } from '../extractors/pdf.js';
 import { extractDocx, extractPptx } from '../extractors/office.js';
 import { extractDelimited, extractSpreadsheet, type SheetPreviewModel } from '../extractors/spreadsheet.js';
+import {
+  recordPreviewParity,
+  recordStructuralFidelity,
+  verifyDownloadIntegrity,
+} from './fidelity.js';
+import { measurePreviewFidelity, measurePreviewTextConsistency } from './preview-fidelity.js';
 import { EMPTY_EXTRACTION, type ExtractionResult } from '../extractors/types.js';
 import { normaliseWhitespace, splitIntoSections } from '@companion/ai';
 
@@ -54,6 +54,10 @@ export interface FileVersionContext {
   kind: DocumentKind;
   storageKey: string;
   sizeBytes: number;
+  /** Digest computed at upload, re-verified every time the worker reads the bytes. */
+  contentHash: string;
+  /** Page images actually produced for this version, set by stage 1. */
+  previewUnits: number | null;
 }
 
 export async function loadFileVersion(fileVersionId: string): Promise<FileVersionContext | null> {
@@ -65,6 +69,8 @@ export async function loadFileVersion(fileVersionId: string): Promise<FileVersio
       companionId: schema.fileVersions.companionId,
       storageKey: schema.fileVersions.storageKey,
       sizeBytes: schema.fileVersions.sizeBytes,
+      contentHash: schema.fileVersions.contentHash,
+      previewUnits: schema.fileVersions.previewUnits,
       filename: schema.fileVersions.originalFilename,
       kind: schema.files.kind,
       workspaceId: schema.companions.workspaceId,
@@ -99,7 +105,34 @@ export async function handleIngestUpload(job: IngestUploadJob): Promise<void> {
   const info = describeFile(version.filename);
   const bytes = await storage.get(version.storageKey);
 
+  // A successful upload response is not evidence that the object stored
+  // intact. Re-digesting the bytes the worker actually read is, and a
+  // mismatch means everything downstream would be derived from the wrong
+  // document, so nothing downstream runs.
+  const intact = await verifyDownloadIntegrity({
+    fileVersionId: version.fileVersionId,
+    companionId: version.companionId,
+    workspaceId: version.workspaceId,
+    expectedHash: version.contentHash,
+    bytes,
+    storageKey: version.storageKey,
+  });
+  if (!intact) {
+    logger.error('ingest: stored bytes do not match the upload digest', {
+      fileVersionId: version.fileVersionId,
+      storageKey: version.storageKey,
+    });
+    await failFile(version.fileId, 'This file did not survive upload intact. Please upload it again.');
+    await chainJob('finalize_companion', {
+      workspaceId: version.workspaceId,
+      companionId: version.companionId,
+      trigger: version.fileVersionId,
+    });
+    return;
+  }
+
   let previewPdf: Buffer | null = null;
+  let previewPages = 0;
 
   if (info.kind === 'PDF') {
     previewPdf = bytes;
@@ -119,6 +152,7 @@ export async function handleIngestUpload(job: IngestUploadJob): Promise<void> {
         height: normalised.height,
         sizeBytes: normalised.bytes.byteLength,
       });
+      previewPages = 1;
     }
   } else if (info.requiresConversion) {
     await updateCompanionProgress(job.companionId, 'structure', 25);
@@ -195,6 +229,19 @@ export async function handleIngestUpload(job: IngestUploadJob): Promise<void> {
       }
     }
 
+    previewPages = pages.length;
+
+    // Compared here, while the source PDF and the delivered images are both in
+    // memory: nothing is re-downloaded to prove what was just produced.
+    await measurePreviewFidelity({
+      fileVersionId: version.fileVersionId,
+      companionId: version.companionId,
+      workspaceId: version.workspaceId,
+      fileName: version.filename,
+      sourcePdf: previewPdf,
+      pages,
+    });
+
     if (pages.length > 0) {
       await db
         .update(schema.fileVersions)
@@ -202,6 +249,12 @@ export async function handleIngestUpload(job: IngestUploadJob): Promise<void> {
         .where(eq(schema.fileVersions.id, version.fileVersionId));
     }
   }
+
+  // Stored now so stage 2 can compare it against what it actually parsed.
+  await db
+    .update(schema.fileVersions)
+    .set({ previewUnits: previewPages })
+    .where(eq(schema.fileVersions.id, version.fileVersionId));
 
   await setProgress(job.jobRecordId, 80);
   await chainJob('extract_text', {
@@ -234,15 +287,13 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
       case 'PDF': {
         result = await extractPdf(bytes, {
           maxPages: limits.maxUnitsPerFile,
-          ...(config.OCR_ENABLED
-            ? {
-                ocr: async (page: number) => {
-                  const image = await rasterisePageForOcr(bytes, page);
-                  if (!image) return null;
-                  return ocrImage(image, config.OCR_LANGUAGES);
-                },
-              }
-            : {}),
+          readPage: pageReaderFor({
+            bytes,
+            workspaceId: version.workspaceId,
+            companionId: version.companionId,
+            documentHint: 'document',
+            maxPages: config.VISION_MAX_PAGES_PER_FILE,
+          }),
         });
         break;
       }
@@ -274,8 +325,9 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
       }
       case 'TEXT': {
         const text = normaliseWhitespace(bytes.toString('utf8'));
+        const sections = splitIntoSections(text);
         result = {
-          units: splitIntoSections(text).map((section, index) => ({
+          units: sections.map((section, index) => ({
             kind: 'SECTION' as const,
             ordinal: index + 1,
             page: null,
@@ -286,14 +338,23 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
             text: section.text,
           })),
           pageCount: null,
-          usedOcr: false,
+          usedVision: false,
           notes: [],
+          declaredUnits: sections.length,
         };
         break;
       }
       case 'IMAGE': {
-        const recognised = config.OCR_ENABLED ? await ocrImage(bytes, config.OCR_LANGUAGES) : null;
-        const text = normaliseWhitespace(recognised ?? '');
+        // An image carries no embedded text, so it always goes to the reader.
+        const outcome = await readPage({
+          embeddedText: '',
+          page: 1,
+          renderPage: async () => bytes,
+          documentHint: 'image',
+          workspaceId: version.workspaceId,
+          companionId: version.companionId,
+        });
+        const text = normaliseWhitespace(outcome.text);
         result = {
           units: text
             ? [
@@ -310,8 +371,11 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
               ]
             : [],
           pageCount: 1,
-          usedOcr: Boolean(recognised),
+          usedVision: outcome.usedVision,
           notes: text ? [] : ['No readable text was found in this image.'],
+          declaredUnits: 1,
+          lowConfidenceUnits: !outcome.blank && outcome.legibility.score < 0.75 ? [1] : [],
+          blankUnits: outcome.blank ? 1 : 0,
         };
         break;
       }
@@ -342,6 +406,29 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
       sizeBytes: body.byteLength,
     });
   }
+
+  // Structural evidence is recorded whether or not anything was extracted: a
+  // file that declares forty pages and yields none is exactly the case worth
+  // catching, and it is also the case that returns early below.
+  await recordStructuralFidelity({
+    fileVersionId: version.fileVersionId,
+    companionId: version.companionId,
+    workspaceId: version.workspaceId,
+    fileName: version.filename,
+    declaredUnits: result.declaredUnits ?? null,
+    parsedUnits: result.units.length,
+    blankUnits: result.blankUnits ?? 0,
+    lowConfidenceUnits: result.lowConfidenceUnits ?? [],
+  });
+
+  await recordPreviewParity({
+    fileVersionId: version.fileVersionId,
+    companionId: version.companionId,
+    workspaceId: version.workspaceId,
+    fileName: version.filename,
+    parsedPages: result.pageCount ?? 0,
+    previewPages: version.previewUnits ?? 0,
+  });
 
   if (result.units.length === 0) {
     // A file with no readable text still renders; it simply is not searchable.
@@ -395,7 +482,7 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
   await db
     .update(schema.fileVersions)
     .set({
-      usedOcr: result.usedOcr,
+      usedVision: result.usedVision,
       textCharacters: totalCharacters,
       ...(result.pageCount ? { pageCount: result.pageCount } : {}),
     })
@@ -408,6 +495,17 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
       .where(eq(schema.files.id, version.fileId));
   }
 
+  const renderable = info.kind === 'PDF' ? bytes : await normalisedPdfFor(version);
+  if (renderable) {
+    await measurePreviewTextConsistency({
+      fileVersionId: version.fileVersionId,
+      companionId: version.companionId,
+      workspaceId: version.workspaceId,
+      fileName: version.filename,
+      sourcePdf: renderable,
+    });
+  }
+
   await setProgress(job.jobRecordId, 90);
   await chainJob('chunk', {
     workspaceId: version.workspaceId,
@@ -415,6 +513,57 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
     fileId: version.fileId,
     fileVersionId: version.fileVersionId,
   });
+}
+
+/**
+ * Adapts the page reader to the extractor's callback, rendering the page on
+ * demand and enforcing the per-file page budget so one enormous scan cannot
+ * dominate a day's provider spend.
+ */
+function pageReaderFor(input: {
+  bytes: Buffer;
+  workspaceId: string;
+  companionId: string;
+  documentHint: string;
+  maxPages: number;
+}) {
+  let readsUsed = 0;
+  return async (page: number, embeddedText: string) => {
+    if (readsUsed >= input.maxPages) return null;
+    readsUsed += 1;
+    const outcome = await readPage({
+      embeddedText,
+      page,
+      renderPage: (target, dpi) => rasterisePageForOcr(input.bytes, target, dpi),
+      documentHint: input.documentHint,
+      workspaceId: input.workspaceId,
+      companionId: input.companionId,
+    });
+    return {
+      text: outcome.text,
+      score: outcome.legibility.score,
+      usedVision: outcome.usedVision,
+      blank: outcome.blank,
+    };
+  };
+}
+
+/** The PDF a recipient's page images were rendered from, if there is one. */
+async function normalisedPdfFor(version: FileVersionContext): Promise<Buffer | null> {
+  const { db, storage } = container();
+  const rows = await db
+    .select({ storageKey: schema.previewArtifacts.storageKey })
+    .from(schema.previewArtifacts)
+    .where(
+      and(
+        eq(schema.previewArtifacts.fileVersionId, version.fileVersionId),
+        eq(schema.previewArtifacts.kind, 'normalized_pdf'),
+      ),
+    )
+    .limit(1);
+  const key = rows[0]?.storageKey;
+  if (!key) return null;
+  return storage.get(key).catch(() => null);
 }
 
 /** Legacy formats: convert to PDF, then extract from that. */
@@ -433,7 +582,16 @@ async function extractViaPdf(
     return { ...EMPTY_EXTRACTION, notes: ['This file could not be converted for reading.'] };
   }
   const pdf = await storage.get(normalized.storageKey);
-  return extractPdf(pdf, { maxPages: limits.maxUnitsPerFile });
+  return extractPdf(pdf, {
+    maxPages: limits.maxUnitsPerFile,
+    readPage: pageReaderFor({
+      bytes: pdf,
+      workspaceId: version.workspaceId,
+      companionId: version.companionId,
+      documentHint: 'document',
+      maxPages: env().VISION_MAX_PAGES_PER_FILE,
+    }),
+  });
 }
 
 export async function recordArtifact(input: {

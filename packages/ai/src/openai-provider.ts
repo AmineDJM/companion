@@ -6,10 +6,13 @@ import {
   type ModelAnswer,
 } from '@companion/shared';
 import OpenAI from 'openai';
-import { buildSystemPrompt, buildUserPrompt } from './prompts.js';
+import { BLANK_PAGE_MARKER, PAGE_READER_INSTRUCTIONS, buildSystemPrompt, buildUserPrompt } from './prompts.js';
 import {
   ProviderError,
   type AnswerRequest,
+  type DocumentVisionProvider,
+  type DocumentVisionRequest,
+  type DocumentVisionResult,
   type AnswerResult,
   type DocumentAnswerProvider,
   type EmbeddingProvider,
@@ -359,4 +362,77 @@ function toProviderError(error: unknown, providerId: string): ProviderError {
   return new ProviderError(`${name}${status ? ` (${status})` : ''}`, providerId, retryable, {
     cause: error,
   });
+}
+
+/**
+ * Page reading via the vision model.
+ *
+ * Companion does not run classical OCR. A scanned page is rendered to an image
+ * and read by the same model that answers questions about it, which handles
+ * layout, tables and poor scans far more reliably than character recognition —
+ * and, crucially, produces text a reader would recognise rather than a stream
+ * of plausible-looking garbage that would silently poison the index.
+ */
+export class OpenAIVisionReader implements DocumentVisionProvider {
+  readonly id = 'openai';
+  readonly visionModel: string;
+  private readonly client: OpenAI;
+
+  constructor(config: OpenAIProviderConfig & { visionModel?: string }) {
+    this.visionModel = config.visionModel ?? config.answerModel ?? DEFAULT_ANSWER_MODEL;
+    this.client = new OpenAI({
+      apiKey: config.apiKey,
+      ...(config.baseUrl ? { baseURL: config.baseUrl } : {}),
+      ...(config.organization ? { organization: config.organization } : {}),
+      // Page reads are slower than answers and must not be cut short.
+      timeout: config.timeoutMs ?? 120_000,
+      maxRetries: config.maxRetries ?? 2,
+    });
+  }
+
+  async readPage(request: DocumentVisionRequest): Promise<DocumentVisionResult> {
+    const started = Date.now();
+    const dataUrl = `data:${request.mimeType};base64,${request.image.toString('base64')}`;
+
+    try {
+      const response = await this.client.responses.create(
+        {
+          model: this.visionModel,
+          instructions: PAGE_READER_INSTRUCTIONS,
+          input: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: request.documentHint
+                    ? `Transcribe page ${request.page} of this ${request.documentHint}.`
+                    : `Transcribe page ${request.page}.`,
+                },
+                { type: 'input_image', image_url: dataUrl, detail: 'high' },
+              ],
+            },
+          ],
+          // A dense page can exceed 4k tokens of text; leave headroom.
+          max_output_tokens: 8_000,
+          reasoning: { effort: 'none' },
+          store: false,
+        } as never,
+        request.signal ? { signal: request.signal } : undefined,
+      );
+
+      const text = extractOutputText(response).trim();
+      const blank = text === BLANK_PAGE_MARKER || text.length === 0;
+
+      return {
+        text: blank ? '' : text,
+        usage: readUsage(response),
+        model: this.visionModel,
+        latencyMs: Date.now() - started,
+        blank,
+      };
+    } catch (error) {
+      throw toProviderError(error, this.id);
+    }
+  }
 }

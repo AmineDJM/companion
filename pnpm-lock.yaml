@@ -8,6 +8,24 @@ importers:
 
   .:
     devDependencies:
+      '@companion/ai':
+        specifier: workspace:*
+        version: link:packages/ai
+      '@companion/db':
+        specifier: workspace:*
+        version: link:packages/db
+      '@companion/quality':
+        specifier: workspace:*
+        version: link:packages/quality
+      '@companion/queue':
+        specifier: workspace:*
+        version: link:packages/queue
+      '@companion/shared':
+        specifier: workspace:*
+        version: link:packages/shared
+      '@companion/storage':
+        specifier: workspace:*
+        version: link:packages/storage
       '@eslint/js':
         specifier: ^9.39.1
         version: 9.39.5
@@ -50,6 +68,9 @@ importers:
       '@companion/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@companion/quality':
+        specifier: workspace:*
+        version: link:../../packages/quality
       '@companion/queue':
         specifier: workspace:*
         version: link:../../packages/queue
@@ -114,6 +135,9 @@ importers:
       '@companion/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@companion/quality':
+        specifier: workspace:*
+        version: link:../../packages/quality
       '@companion/queue':
         specifier: workspace:*
         version: link:../../packages/queue
@@ -182,6 +206,15 @@ importers:
       tsx:
         specifier: ^4.20.6
         version: 4.23.13
+
+  packages/quality:
+    dependencies:
+      '@companion/shared':
+        specifier: workspace:*
+        version: link:../shared
+      zod:
+        specifier: ^4.1.13
+        version: 4.6.5
 
   packages/queue:
     dependencies:

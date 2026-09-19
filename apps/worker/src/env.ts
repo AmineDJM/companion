@@ -19,6 +19,7 @@ const envSchema = z.object({
   OPENAI_BASE_URL: z.string().url().optional(),
   OPENAI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
   OPENAI_ANSWER_MODEL: z.string().default('gpt-5.6-luna'),
+  OPENAI_VISION_MODEL: z.string().default('gpt-5.6-luna'),
 
   STORAGE_DRIVER: z.enum(['s3', 'local']).default('local'),
   STORAGE_LOCAL_ROOT: z.string().default('.storage'),
@@ -31,10 +32,23 @@ const envSchema = z.object({
 
   /** Jobs processed in parallel by this worker instance. */
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
-  /** Languages passed to OCR, e.g. "eng+fra". */
-  OCR_LANGUAGES: z.string().default('eng'),
-  /** Set false to skip OCR entirely on constrained instances. */
-  OCR_ENABLED: booleanish.default(true),
+  /**
+   * Reads pages with no usable embedded text using the vision model rather
+   * than classical OCR. Disable only on an instance with no provider access;
+   * the pages then keep whatever text was embedded, and the ingestion quality
+   * metric records the shortfall instead of hiding it.
+   */
+  VISION_READING_ENABLED: booleanish.default(true),
+  /** Pages per document that may be read with the vision model. */
+  VISION_MAX_PAGES_PER_FILE: z.coerce.number().int().min(0).max(2_000).default(400),
+  /**
+   * Audits one page per document by transcribing its rendered image and
+   * comparing that against the text the index holds, which is the only way to
+   * catch a preview and an answer describing different pages. Costs one extra
+   * provider call per file, so it can be turned off on a cost-sensitive
+   * instance; the metric is then simply not recorded rather than assumed to pass.
+   */
+  PREVIEW_TEXT_AUDIT_ENABLED: booleanish.default(true),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 });
 

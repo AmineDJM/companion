@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "packageManager": "pnpm@10.33.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "pnpm -r --filter=./packages/* build && pnpm --filter @companion/web build && pnpm --filter @companion/worker build",
     "build:web": "pnpm -r --filter=./packages/* build && pnpm --filter @companion/web build",
@@ -37,6 +39,12 @@
     "typescript-eslint": "^8.46.2",
     "vitest": "^3.2.4",
     "dotenv": "^17.2.3",
-    "tsx": "^4.20.6"
+    "tsx": "^4.20.6",
+    "@companion/shared": "workspace:*",
+    "@companion/db": "workspace:*",
+    "@companion/ai": "workspace:*",
+    "@companion/storage": "workspace:*",
+    "@companion/queue": "workspace:*",
+    "@companion/quality": "workspace:*"
   }
 }

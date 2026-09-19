@@ -11,6 +11,9 @@ import { isAvailable, run } from './exec.js';
  * sees identical layout. PDFs are rasterised to page images with Poppler, which
  * is what makes "downloads disabled" real: the viewer receives pictures of
  * pages, never the source file.
+ *
+ * There is deliberately no OCR here. Pages without usable embedded text are
+ * read by the vision model instead — see lib/page-reader.ts.
  */
 const LIBREOFFICE_TIMEOUT_MS = 180_000;
 const RASTERISE_TIMEOUT_MS = 240_000;
@@ -21,10 +24,6 @@ export async function libreOfficeAvailable(): Promise<boolean> {
 
 export async function popplerAvailable(): Promise<boolean> {
   return isAvailable('pdftoppm');
-}
-
-export async function tesseractAvailable(): Promise<boolean> {
-  return isAvailable('tesseract');
 }
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -155,10 +154,16 @@ function pageNumberOf(filename: string): number {
   return match?.[1] ? Number.parseInt(match[1], 10) : 0;
 }
 
-/** Renders one PDF page at higher DPI, for OCR input. */
+/**
+ * Renders one PDF page at high resolution for the page reader.
+ *
+ * Greyscale keeps the image small; the vision model gains nothing from colour
+ * on a text page, and a smaller image is a cheaper request.
+ */
 export async function rasterisePageForOcr(
   buffer: Buffer,
   page: number,
+  dpi = 300,
 ): Promise<Buffer | null> {
   if (!(await popplerAvailable())) return null;
 
@@ -168,44 +173,12 @@ export async function rasterisePageForOcr(
     // OCR accuracy improves markedly at 300 DPI; greyscale is enough for text.
     const result = await run(
       'pdftoppm',
-      ['-png', '-gray', '-r', '300', '-f', String(page), '-l', String(page), inputPath, join(dir, 'ocr')],
+      ['-png', '-gray', '-r', String(dpi), '-f', String(page), '-l', String(page), inputPath, join(dir, 'ocr')],
       { timeoutMs: 60_000 },
     );
     if (result.code !== 0) return null;
     const produced = (await readdir(dir)).find((entry) => entry.startsWith('ocr') && entry.endsWith('.png'));
     return produced ? readFile(join(dir, produced)) : null;
-  });
-}
-
-/** Runs OCR over an image. Returns null when Tesseract is not installed. */
-export async function ocrImage(
-  imageBytes: Buffer,
-  languages = 'eng',
-): Promise<string | null> {
-  if (!(await tesseractAvailable())) return null;
-
-  return withTempDir(async (dir) => {
-    const inputPath = join(dir, 'input.png');
-    // Normalising to greyscale PNG first makes Tesseract's job easier and
-    // sidesteps formats it handles poorly (HEIC, exotic TIFF variants).
-    const normalised = await sharp(imageBytes)
-      .rotate()
-      .greyscale()
-      .normalise()
-      .png()
-      .toBuffer()
-      .catch(() => null);
-    if (!normalised) return null;
-    await writeFile(inputPath, normalised);
-
-    const result = await run(
-      'tesseract',
-      [inputPath, join(dir, 'out'), '-l', languages, '--psm', '3'],
-      { timeoutMs: 90_000 },
-    );
-    if (result.code !== 0) return null;
-
-    return readFile(join(dir, 'out.txt'), 'utf8').catch(() => null);
   });
 }
 
@@ -236,4 +209,69 @@ export async function normaliseImage(
   } catch {
     return null;
   }
+}
+
+/**
+ * Decodes any image to raw luminance at a given size.
+ *
+ * Fidelity comparison needs both images in the same space; the caller owns the
+ * target size because it is comparing a delivered preview against a reference
+ * render of the same page.
+ */
+export async function greyscaleRaw(
+  imageBytes: Buffer,
+  size: { width: number; height: number },
+): Promise<{ width: number; height: number; data: Uint8Array } | null> {
+  try {
+    const { data, info } = await sharp(imageBytes)
+      .resize({ width: size.width, height: size.height, fit: 'fill' })
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    return { width: info.width, height: info.height, data: new Uint8Array(data) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Renders one page losslessly, as the reference a delivered preview is judged
+ * against. No resize and no lossy encode, so any difference found afterwards
+ * belongs to the delivery pipeline rather than to the renderer.
+ */
+export async function renderReferencePage(
+  buffer: Buffer,
+  page: number,
+  dpi = 150,
+): Promise<{ bytes: Buffer; width: number; height: number } | null> {
+  if (!(await popplerAvailable())) return null;
+
+  return withTempDir(async (dir) => {
+    const inputPath = join(dir, 'input.pdf');
+    await writeFile(inputPath, buffer);
+    const result = await run(
+      'pdftoppm',
+      [
+        '-png',
+        '-r',
+        String(dpi),
+        '-f',
+        String(page),
+        '-l',
+        String(page),
+        '-cropbox',
+        inputPath,
+        join(dir, 'ref'),
+      ],
+      { timeoutMs: 60_000 },
+    );
+    if (result.code !== 0) return null;
+    const produced = (await readdir(dir)).find(
+      (entry) => entry.startsWith('ref') && entry.endsWith('.png'),
+    );
+    if (!produced) return null;
+    const bytes = await readFile(join(dir, produced));
+    const meta = await sharp(bytes).metadata();
+    return { bytes, width: meta.width ?? 0, height: meta.height ?? 0 };
+  });
 }
