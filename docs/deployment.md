@@ -53,6 +53,10 @@ the same database concurrently is a race, so the blueprint gives the job one
 owner, and a test asserts it stays that way.
 
 1. **Create the blueprint.** Push the repository, then New → Blueprint from it.
+   The services name no branch, so each follows the repository's default
+   branch. If you want to deploy from a different one, set it per service in
+   the dashboard rather than pinning it here — a branch name in the blueprint
+   makes Render reject the whole file wherever that branch does not exist.
 2. **Fill in the `sync: false` variables** in the dashboard. The ones that
    change whether the product works at all:
 

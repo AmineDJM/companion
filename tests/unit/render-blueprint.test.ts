@@ -41,6 +41,17 @@ interface Blueprint {
   services: Service[];
 }
 
+/**
+ * Plan names Render has retired for new Postgres instances.
+ *
+ * These are not merely deprecated: the blueprint validator refuses the file
+ * outright, which is a deploy that never starts rather than one that starts
+ * degraded. The names overlap with the service instance types, where
+ * `standard` is still perfectly valid — which is exactly how one ends up in
+ * the database block by habit.
+ */
+const RETIRED_POSTGRES_PLANS = ['starter', 'standard', 'standard plus', 'pro', 'pro plus'];
+
 const ROOT = resolve(import.meta.dirname, '../..');
 const blueprint = parse(readFileSync(resolve(ROOT, 'render.yaml'), 'utf8')) as Blueprint;
 
@@ -107,6 +118,17 @@ describe('migrations', () => {
       // A Render worker that exits is restarted, so a migration job written
       // as one would re-run forever instead of once.
       expect(entry.startCommand ?? '', entry.name).not.toContain('migrate');
+    }
+  });
+});
+
+describe('branch tracking', () => {
+  it('names no branch, so every service follows the repository default', () => {
+    // A hardcoded branch is a blueprint that only validates in the repository
+    // it was written in: Render refuses the whole file for a branch that does
+    // not exist, and the name changes on a fork, a rename or a merge.
+    for (const entry of blueprint.services) {
+      expect(entry.branch, `${entry.name} should not pin a branch`).toBeUndefined();
     }
   });
 });
@@ -249,6 +271,12 @@ describe('configuration the application actually reads', () => {
 });
 
 describe('database', () => {
+  it('does not use a plan Render has retired', () => {
+    const plan = (blueprint.databases ?? [])[0]?.plan ?? '';
+    expect(plan).not.toBe('');
+    expect(RETIRED_POSTGRES_PLANS, `plan: ${plan}`).not.toContain(plan.toLowerCase());
+  });
+
   it('runs a Postgres version pgvector is available for', () => {
     const database = (blueprint.databases ?? [])[0];
     expect(database?.postgresMajorVersion).toBe('16');
