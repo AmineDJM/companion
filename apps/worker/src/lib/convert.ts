@@ -89,9 +89,18 @@ export interface RasterisedPage {
 /**
  * Renders PDF pages to WebP images.
  *
- * 150 DPI is the point where text stays crisp at 100% zoom without the file
- * sizes that make a viewer feel slow.
+ * 200 DPI, capped at 2400px wide. The old 150 DPI put an A4 page at 1241px,
+ * which is fine at 100% zoom on a 1x display and visibly soft everywhere else:
+ * a retina laptop showing that page at 850 CSS px wants 1700 device pixels,
+ * and a 27-inch screen wants more still. 200 DPI puts A4 at 1654px and a
+ * widescreen slide at the 2400px cap, which covers both without the file sizes
+ * that would make the first page slow to arrive.
+ *
+ * The page is never enlarged, so a small source stays small rather than being
+ * blown up into something that only looks like detail.
  */
+const RENDER_DPI = 200;
+const MAX_RENDER_WIDTH = 2_400;
 export async function rasterisePdf(
   buffer: Buffer,
   options: { maxPages: number; dpi?: number; maxWidth?: number } = { maxPages: 200 },
@@ -107,7 +116,7 @@ export async function rasterisePdf(
       [
         '-png',
         '-r',
-        String(options.dpi ?? 150),
+        String(options.dpi ?? RENDER_DPI),
         '-f',
         '1',
         '-l',
@@ -131,12 +140,14 @@ export async function rasterisePdf(
       // WebP at quality 82 is roughly a third the size of the PNG with no
       // visible difference on text, which matters for first-page latency.
       const image = sharp(png).resize({
-        width: options.maxWidth ?? 1_600,
+        width: options.maxWidth ?? MAX_RENDER_WIDTH,
         withoutEnlargement: true,
         fit: 'inside',
       });
       const { data, info } = await image
-        .webp({ quality: 82, effort: 4 })
+        // A higher effort costs the worker a little CPU once and every reader
+        // a smaller download for the life of the link.
+        .webp({ quality: 82, effort: 5 })
         .toBuffer({ resolveWithObject: true });
       pages.push({
         page: pageNumberOf(file),

@@ -13,7 +13,19 @@ export interface FileTypeInfo {
 
 const REGISTRY: Record<string, Omit<FileTypeInfo, 'extension'>> = {
   pdf: { mimeType: 'application/pdf', kind: 'PDF', requiresConversion: false, nativeText: true },
+
+  // ── Word processing ───────────────────────────────────────────────────────
+  // Legacy binary, modern OOXML, their macro and template variants, and the
+  // OpenDocument family. LibreOffice reads all of them; only .docx is parsed
+  // natively, because that is the one whose text we can extract faster and
+  // more accurately than a PDF round trip.
   doc: {
+    mimeType: 'application/msword',
+    kind: 'WORD',
+    requiresConversion: true,
+    nativeText: false,
+  },
+  dot: {
     mimeType: 'application/msword',
     kind: 'WORD',
     requiresConversion: true,
@@ -25,14 +37,50 @@ const REGISTRY: Record<string, Omit<FileTypeInfo, 'extension'>> = {
     requiresConversion: true,
     nativeText: true,
   },
+  docm: {
+    // Macro-enabled. The macros are never executed: the file is converted to
+    // PDF in a headless process and the original is only ever handed back
+    // untouched, exactly as it was uploaded.
+    mimeType: 'application/vnd.ms-word.document.macroEnabled.12',
+    kind: 'WORD',
+    requiresConversion: true,
+    nativeText: true,
+  },
+  dotx: {
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.template',
+    kind: 'WORD',
+    requiresConversion: true,
+    nativeText: true,
+  },
   odt: {
     mimeType: 'application/vnd.oasis.opendocument.text',
     kind: 'WORD',
     requiresConversion: true,
     nativeText: false,
   },
+  ott: {
+    mimeType: 'application/vnd.oasis.opendocument.text-template',
+    kind: 'WORD',
+    requiresConversion: true,
+    nativeText: false,
+  },
   rtf: { mimeType: 'application/rtf', kind: 'WORD', requiresConversion: true, nativeText: false },
+  epub: {
+    mimeType: 'application/epub+zip',
+    kind: 'WORD',
+    requiresConversion: true,
+    nativeText: false,
+  },
+
+  // ── Presentations ─────────────────────────────────────────────────────────
   ppt: {
+    mimeType: 'application/vnd.ms-powerpoint',
+    kind: 'SLIDES',
+    requiresConversion: true,
+    nativeText: false,
+  },
+  pps: {
+    // A slideshow is a .ppt that opens in presentation mode; same container.
     mimeType: 'application/vnd.ms-powerpoint',
     kind: 'SLIDES',
     requiresConversion: true,
@@ -44,13 +92,45 @@ const REGISTRY: Record<string, Omit<FileTypeInfo, 'extension'>> = {
     requiresConversion: true,
     nativeText: true,
   },
+  pptm: {
+    mimeType: 'application/vnd.ms-powerpoint.presentation.macroEnabled.12',
+    kind: 'SLIDES',
+    requiresConversion: true,
+    nativeText: true,
+  },
+  ppsx: {
+    mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+    kind: 'SLIDES',
+    requiresConversion: true,
+    nativeText: true,
+  },
+  potx: {
+    mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.template',
+    kind: 'SLIDES',
+    requiresConversion: true,
+    nativeText: true,
+  },
   odp: {
     mimeType: 'application/vnd.oasis.opendocument.presentation',
     kind: 'SLIDES',
     requiresConversion: true,
     nativeText: false,
   },
+  otp: {
+    mimeType: 'application/vnd.oasis.opendocument.presentation-template',
+    kind: 'SLIDES',
+    requiresConversion: true,
+    nativeText: false,
+  },
+
+  // ── Spreadsheets ──────────────────────────────────────────────────────────
   xls: {
+    mimeType: 'application/vnd.ms-excel',
+    kind: 'SPREADSHEET',
+    requiresConversion: true,
+    nativeText: false,
+  },
+  xlt: {
     mimeType: 'application/vnd.ms-excel',
     kind: 'SPREADSHEET',
     requiresConversion: true,
@@ -62,8 +142,26 @@ const REGISTRY: Record<string, Omit<FileTypeInfo, 'extension'>> = {
     requiresConversion: false,
     nativeText: true,
   },
+  xlsm: {
+    mimeType: 'application/vnd.ms-excel.sheet.macroEnabled.12',
+    kind: 'SPREADSHEET',
+    requiresConversion: false,
+    nativeText: true,
+  },
+  xltx: {
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+    kind: 'SPREADSHEET',
+    requiresConversion: false,
+    nativeText: true,
+  },
   ods: {
     mimeType: 'application/vnd.oasis.opendocument.spreadsheet',
+    kind: 'SPREADSHEET',
+    requiresConversion: true,
+    nativeText: false,
+  },
+  ots: {
+    mimeType: 'application/vnd.oasis.opendocument.spreadsheet-template',
     kind: 'SPREADSHEET',
     requiresConversion: true,
     nativeText: false,
@@ -75,8 +173,31 @@ const REGISTRY: Record<string, Omit<FileTypeInfo, 'extension'>> = {
     requiresConversion: false,
     nativeText: true,
   },
+
+  // ── Drawings ──────────────────────────────────────────────────────────────
+  odg: {
+    mimeType: 'application/vnd.oasis.opendocument.graphics',
+    kind: 'SLIDES',
+    requiresConversion: true,
+    nativeText: false,
+  },
+
+  // ── Plain text ────────────────────────────────────────────────────────────
   txt: { mimeType: 'text/plain', kind: 'TEXT', requiresConversion: false, nativeText: true },
   md: { mimeType: 'text/markdown', kind: 'TEXT', requiresConversion: false, nativeText: true },
+  markdown: {
+    mimeType: 'text/markdown',
+    kind: 'TEXT',
+    requiresConversion: false,
+    nativeText: true,
+  },
+  json: { mimeType: 'application/json', kind: 'TEXT', requiresConversion: false, nativeText: true },
+  xml: { mimeType: 'application/xml', kind: 'TEXT', requiresConversion: false, nativeText: true },
+  yaml: { mimeType: 'text/yaml', kind: 'TEXT', requiresConversion: false, nativeText: true },
+  yml: { mimeType: 'text/yaml', kind: 'TEXT', requiresConversion: false, nativeText: true },
+  log: { mimeType: 'text/plain', kind: 'TEXT', requiresConversion: false, nativeText: true },
+
+  // ── Images ────────────────────────────────────────────────────────────────
   png: { mimeType: 'image/png', kind: 'IMAGE', requiresConversion: false, nativeText: false },
   jpg: { mimeType: 'image/jpeg', kind: 'IMAGE', requiresConversion: false, nativeText: false },
   jpeg: { mimeType: 'image/jpeg', kind: 'IMAGE', requiresConversion: false, nativeText: false },
@@ -86,6 +207,16 @@ const REGISTRY: Record<string, Omit<FileTypeInfo, 'extension'>> = {
   tif: { mimeType: 'image/tiff', kind: 'IMAGE', requiresConversion: false, nativeText: false },
   tiff: { mimeType: 'image/tiff', kind: 'IMAGE', requiresConversion: false, nativeText: false },
   heic: { mimeType: 'image/heic', kind: 'IMAGE', requiresConversion: false, nativeText: false },
+  heif: { mimeType: 'image/heif', kind: 'IMAGE', requiresConversion: false, nativeText: false },
+  avif: { mimeType: 'image/avif', kind: 'IMAGE', requiresConversion: false, nativeText: false },
+  svg: {
+    // Rasterised on ingestion like any other image, so no markup it carries
+    // is ever handed to a browser.
+    mimeType: 'image/svg+xml',
+    kind: 'IMAGE',
+    requiresConversion: false,
+    nativeText: false,
+  },
   zip: {
     mimeType: 'application/zip',
     kind: 'ARCHIVE',
@@ -145,6 +276,10 @@ const SIGNATURES: { kind: DocumentKind; bytes: number[]; offset: number }[] = [
   { kind: 'IMAGE', bytes: [0x47, 0x49, 0x46, 0x38], offset: 0 }, // GIF8
   { kind: 'IMAGE', bytes: [0x42, 0x4d], offset: 0 }, // BMP
   { kind: 'WORD', bytes: [0xd0, 0xcf, 0x11, 0xe0], offset: 0 }, // legacy OLE2 (doc/xls/ppt)
+  { kind: 'IMAGE', bytes: [0x52, 0x49, 0x46, 0x46], offset: 0 }, // RIFF (WebP)
+  { kind: 'IMAGE', bytes: [0x49, 0x49, 0x2a, 0x00], offset: 0 }, // TIFF little-endian
+  { kind: 'IMAGE', bytes: [0x4d, 0x4d, 0x00, 0x2a], offset: 0 }, // TIFF big-endian
+  { kind: 'IMAGE', bytes: [0x66, 0x74, 0x79, 0x70], offset: 4 }, // ISO-BMFF: HEIC, HEIF, AVIF
 ];
 
 /** Executable signatures that are refused outright, whatever the extension. */
@@ -184,12 +319,16 @@ export function signatureMatchesExtension(extension: string, header: Uint8Array)
   if (looksExecutable(header)) return false;
   const sniffed = sniffKind(header);
   if (sniffed === null) {
-    // Text-like formats legitimately have no signature.
+    // Text-like formats legitimately have no signature, and so does SVG,
+    // which is XML however it is labelled.
+    if (extension.toLowerCase() === 'svg') return true;
     return info.kind === 'TEXT' || info.kind === 'SPREADSHEET' || info.kind === 'WORD';
   }
+  // A text extension must not be carrying a binary container.
   if (info.kind === 'TEXT') return false;
   if (sniffed === 'ARCHIVE') {
-    // OOXML and ODF are ZIP containers; so is a genuine .zip.
+    // OOXML, ODF and EPUB are all ZIP containers; so is a genuine .zip.
+    // Which one it really is, the extractor decides by reading the manifest.
     return ['ARCHIVE', 'WORD', 'SLIDES', 'SPREADSHEET'].includes(info.kind);
   }
   if (sniffed === 'WORD') {

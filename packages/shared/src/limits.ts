@@ -91,30 +91,21 @@ export const RETRIEVAL_BUDGET = {
 } as const;
 
 export const ACCEPTED_EXTENSIONS = [
+  // Everything LibreOffice and Poppler between them can render, plus the
+  // formats read directly. Legacy binary and modern XML alike: a 2003 .ppt
+  // and a 2024 .pptx are both just a deck to the person you sent it to.
   'pdf',
-  'doc',
-  'docx',
-  'ppt',
-  'pptx',
-  'xls',
-  'xlsx',
-  'csv',
-  'tsv',
-  'txt',
-  'md',
-  'rtf',
-  'odt',
-  'odp',
-  'ods',
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'webp',
-  'bmp',
-  'tif',
-  'tiff',
-  'heic',
+  // Word processing
+  'doc', 'dot', 'docx', 'docm', 'dotx', 'odt', 'ott', 'rtf', 'epub',
+  // Presentations
+  'ppt', 'pps', 'pptx', 'pptm', 'ppsx', 'potx', 'odp', 'otp', 'odg',
+  // Spreadsheets
+  'xls', 'xlt', 'xlsx', 'xlsm', 'xltx', 'ods', 'ots', 'csv', 'tsv',
+  // Text
+  'txt', 'md', 'markdown', 'json', 'xml', 'yaml', 'yml', 'log',
+  // Images
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'heif', 'avif', 'svg',
+  // Archives
   'zip',
 ] as const;
 

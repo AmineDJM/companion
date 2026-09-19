@@ -17,6 +17,8 @@ export interface ViewerPreview {
   pageCount: number;
   baseUrl: string;
   mimeType: string;
+  /** Width / height of the first page, so the viewer reserves the right space. */
+  aspectRatio: number | null;
 }
 
 export interface ViewerData {

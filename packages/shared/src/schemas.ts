@@ -95,11 +95,22 @@ export const createCompanionSchema = z.object({
   draftToken: z.string().max(200).optional(),
 });
 
-export const updateCompanionSchema = z.object({
-  name: companionNameSchema.optional(),
-  defaultFileId: z.string().uuid().nullable().optional(),
-  branding: brandingSchema.partial().optional(),
-});
+/**
+ * Strict on purpose.
+ *
+ * This endpoint owns a Companion's identity, not its access policy — that
+ * lives at /access. Zod strips unknown keys by default, so a client sending
+ * `downloadAllowed` here would receive `ok: true` and change nothing, which is
+ * worse than an error: the interface would report a state the server never
+ * reached. Rejecting the field says where it belongs instead.
+ */
+export const updateCompanionSchema = z
+  .object({
+    name: companionNameSchema.optional(),
+    defaultFileId: z.string().uuid().nullable().optional(),
+    branding: brandingSchema.partial().optional(),
+  })
+  .strict();
 
 export const uploadIntentSchema = z.object({
   files: z

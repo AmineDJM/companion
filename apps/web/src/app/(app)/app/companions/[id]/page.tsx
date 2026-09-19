@@ -13,6 +13,7 @@ import { getCompanionById } from '@/server/services/companions';
 import { listFiles } from '@/server/services/files';
 import { CreatedBanner } from '@/components/app/created-banner';
 import { ProcessingStatus } from '@/components/app/processing-status';
+import { DownloadToggle } from '@/components/app/download-toggle';
 import { Card, EmptyState, SectionHeading, Stat, StatRow } from '@/components/ui/primitives';
 import { ButtonLink } from '@/components/ui/button';
 import { FileIcon } from '@/components/ui/icons';
@@ -147,18 +148,24 @@ export default async function CompanionOverviewPage({
                       : 'Identified visitors'
               }
             />
-            <Row label="Downloads" value={companion.downloadAllowed ? 'Allowed' : 'Disabled'} />
             <Row
               label="Expires"
               value={companion.expiresAt ? formatDateLong(companion.expiresAt) : 'Never'}
             />
             <Row label="Questions" value={companion.aiEnabled ? 'Enabled' : 'Turned off'} />
           </dl>
+
+          <DownloadToggle
+            companionId={companion.id}
+            accessMode={companion.accessMode}
+            initialAllowed={companion.downloadAllowed}
+          />
+
           <ButtonLink
             href={`/app/companions/${companion.id}/access`}
             variant="secondary"
             size="sm"
-            className="mt-5"
+            className="mt-4"
           >
             Change access
           </ButtonLink>

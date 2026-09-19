@@ -298,11 +298,20 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
         break;
       }
       case 'WORD': {
-        result = info.extension === 'docx' ? await extractDocx(bytes) : await extractViaPdf(version, limits);
+        // The OOXML word family shares one part structure, so the native
+        // reader handles all of it; everything older goes through the PDF the
+        // conversion stage already produced.
+        result = WORD_OOXML.has(info.extension)
+          ? await extractDocx(bytes)
+          : await extractViaPdf(version, limits);
         break;
       }
       case 'SLIDES': {
-        result = info.extension === 'pptx' ? await extractPptx(bytes) : await extractViaPdf(version, limits);
+        // Same for decks: .pptx, its macro-enabled and template variants and a
+        // saved slideshow are the same container with a different extension.
+        result = SLIDES_OOXML.has(info.extension)
+          ? await extractPptx(bytes)
+          : await extractViaPdf(version, limits);
         break;
       }
       case 'SPREADSHEET': {
@@ -314,7 +323,7 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
           );
           result = extracted;
           preview = extracted.preview;
-        } else if (info.extension === 'xlsx') {
+        } else if (SHEET_OOXML.has(info.extension)) {
           const extracted = await extractSpreadsheet(bytes);
           result = extracted;
           preview = extracted.preview;
@@ -520,6 +529,19 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
     fileVersionId: version.fileVersionId,
   });
 }
+
+/**
+ * Extensions whose bytes the native readers understand directly.
+ *
+ * Each set is one container format wearing different names: a macro-enabled
+ * deck and a plain one differ only in whether a VBA part is present, which is
+ * a part the text reader never opens. Everything not listed here is read from
+ * the PDF the conversion stage produced, which is how a 1997 .doc and a
+ * template .ott end up equally readable.
+ */
+const WORD_OOXML = new Set(['docx', 'docm', 'dotx']);
+const SLIDES_OOXML = new Set(['pptx', 'pptm', 'ppsx', 'potx']);
+const SHEET_OOXML = new Set(['xlsx', 'xlsm', 'xltx']);
 
 /**
  * Adapts the page reader to the extractor's callback, rendering the page on

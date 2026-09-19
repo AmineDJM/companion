@@ -41,10 +41,14 @@ an idempotency key, so a retry after a crash produces the same result.
    and the compression ratio is budgeted so a zip bomb runs out of allowance
    instead of memory.
 2. **`ingest_upload`** — the bytes are re-digested against the upload hash
-   before anything is derived from them. Office formats are normalised to PDF
-   with LibreOffice; PDFs are rasterised to WebP page images with Poppler,
-   which is what makes "downloads disabled" mean something. A sample of pages
-   is compared against a lossless reference render.
+   before anything is derived from them. Every Office format — legacy binary,
+   OOXML, macro-enabled, template, OpenDocument — is normalised to PDF with
+   LibreOffice, which is why a 2003 deck and a 2024 one reach the recipient as
+   the same thing. PDFs are then rasterised to WebP page images with Poppler at
+   200 DPI (A4 lands at 1654px, a widescreen slide at the 2400px cap), which is
+   what makes "downloads disabled" mean something and what keeps text crisp on
+   a retina or 27-inch display. A sample of pages is compared against a
+   lossless reference render.
 3. **`extract_text`** — one document unit per page, slide or sheet, carrying
    enough locator detail to navigate to. A page with no usable embedded text is
    handed to the vision reader at 300 then 400 DPI; the result is scored for

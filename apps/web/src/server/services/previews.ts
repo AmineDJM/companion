@@ -17,6 +17,15 @@ export interface PreviewDescriptor {
   /** Route path the viewer fetches. Never a storage URL. */
   baseUrl: string;
   mimeType: string;
+  /**
+   * Width divided by height of the first page, measured at render time.
+   *
+   * The viewer needs the real shape before the first byte of the first image
+   * arrives: to reserve the right space (a deck that assumed A4 visibly jumps
+   * when it loads) and to decide how wide to draw the page on a large screen.
+   * Null when nothing was rasterised.
+   */
+  aspectRatio: number | null;
 }
 
 export async function describePreview(input: {
@@ -34,7 +43,12 @@ export async function describePreview(input: {
   if (!file.currentVersionId) throw new AppError('companion_not_ready', 'This file is still being prepared.');
 
   const artifacts = await db
-    .select({ kind: schema.previewArtifacts.kind, page: schema.previewArtifacts.page })
+    .select({
+      kind: schema.previewArtifacts.kind,
+      page: schema.previewArtifacts.page,
+      width: schema.previewArtifacts.width,
+      height: schema.previewArtifacts.height,
+    })
     .from(schema.previewArtifacts)
     .where(eq(schema.previewArtifacts.fileVersionId, file.currentVersionId))
     .orderBy(asc(schema.previewArtifacts.page));
@@ -44,20 +58,35 @@ export async function describePreview(input: {
 
   // Page images are the preferred form: they never expose the source document.
   if (pageImages.length > 0) {
+    const first = pageImages[0];
     return {
       kind: 'page_images',
       pageCount: pageImages.length,
       baseUrl: base,
       mimeType: 'image/webp',
+      aspectRatio: ratioOf(first?.width ?? null, first?.height ?? null),
     };
   }
 
   if (artifacts.some((artifact) => artifact.kind === 'sheet_html')) {
-    return { kind: 'sheets', pageCount: 1, baseUrl: base, mimeType: 'application/json' };
+    return {
+      kind: 'sheets',
+      pageCount: 1,
+      baseUrl: base,
+      mimeType: 'application/json',
+      aspectRatio: null,
+    };
   }
 
   if (file.kind === 'IMAGE') {
-    return { kind: 'image', pageCount: 1, baseUrl: base, mimeType: file.mimeType };
+    const image = artifacts.find((artifact) => artifact.kind === 'page_image');
+    return {
+      kind: 'image',
+      pageCount: 1,
+      baseUrl: base,
+      mimeType: file.mimeType,
+      aspectRatio: ratioOf(image?.width ?? null, image?.height ?? null),
+    };
   }
 
   if (
@@ -70,14 +99,27 @@ export async function describePreview(input: {
       pageCount: file.pageCount ?? 1,
       baseUrl: base,
       mimeType: 'application/pdf',
+      aspectRatio: null,
     };
   }
 
   if (file.kind === 'TEXT' || file.kind === 'SPREADSHEET') {
-    return { kind: 'text', pageCount: 1, baseUrl: base, mimeType: 'text/plain' };
+    return { kind: 'text', pageCount: 1, baseUrl: base, mimeType: 'text/plain', aspectRatio: null };
   }
 
-  return { kind: 'unavailable', pageCount: 0, baseUrl: base, mimeType: 'application/octet-stream' };
+  return {
+    kind: 'unavailable',
+    pageCount: 0,
+    baseUrl: base,
+    mimeType: 'application/octet-stream',
+    aspectRatio: null,
+  };
+}
+
+/** Guards against a zero height, which would make the ratio meaningless. */
+function ratioOf(width: number | null, height: number | null): number | null {
+  if (!width || !height) return null;
+  return Number((width / height).toFixed(4));
 }
 
 export interface ResolvedArtifact {

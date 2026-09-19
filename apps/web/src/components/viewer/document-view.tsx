@@ -18,6 +18,26 @@ export interface PreviewInfo {
   pageCount: number;
   baseUrl: string;
   mimeType: string;
+  /** Width / height of the first page, measured when it was rendered. */
+  aspectRatio: number | null;
+}
+
+/**
+ * How wide to draw a page at 100% zoom.
+ *
+ * A document has a natural reading size, and "as wide as the window" is not
+ * it: an A4 page stretched across a 27-inch screen is a worse reading
+ * experience than the paper it came from, while a 16:9 deck stretched to the
+ * same width is exactly right. So the ceiling follows the shape of the page.
+ *
+ * Portrait pages settle near the width of a real sheet on a desk. Landscape
+ * pages and slides are meant to be presented, so they take the room.
+ */
+function baseWidthFor(aspectRatio: number | null): number {
+  if (aspectRatio === null) return 1_000;
+  if (aspectRatio >= 1.2) return 1_680; // slides and landscape
+  if (aspectRatio >= 0.95) return 1_200; // square-ish
+  return 1_000; // A4, Letter, anything portrait
 }
 
 export function DocumentView({
@@ -147,7 +167,17 @@ export function DocumentView({
       onMouseUp={handleMouseUp}
       className="h-full overflow-y-auto scrollbar-slim bg-[#ECECEF] px-3 py-5 sm:px-6 sm:py-8"
     >
-      <div className="mx-auto flex flex-col items-center gap-4" style={{ maxWidth: `${zoom}%` }}>
+      <div
+        className="mx-auto flex flex-col items-center gap-4"
+        style={{
+          // A pixel ceiling rather than a percentage: a percentage of a very
+          // wide window upscales the page past the resolution it was rendered
+          // at, which reads as blur rather than as size. Zoom still scales
+          // from here, so the control does what the reader expects.
+          width: `${Math.round(baseWidthFor(preview.aspectRatio) * (zoom / 100))}px`,
+          maxWidth: '100%',
+        }}
+      >
         {pages.map((pageNumber) => (
           <figure
             key={pageNumber}
@@ -174,7 +204,12 @@ export function DocumentView({
                 }}
               />
             ) : (
-              <div className="flex aspect-[1/1.414] w-full items-center justify-center">
+              <div
+                className="flex w-full items-center justify-center"
+                // The real shape, so a deck does not reserve the space of an
+                // A4 page and visibly jump the moment it loads.
+                style={{ aspectRatio: preview.aspectRatio ?? 1 / 1.414 }}
+              >
                 <Spinner className="text-ink-subtle" />
               </div>
             )}

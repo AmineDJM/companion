@@ -16,6 +16,10 @@ a single line at the bottom of the page: *✦ Ask anything…*
 - **One dropzone, one link.** Files, folders and ZIPs in any mix produce one
   permanent URL (`/c/x8K2pz`). Adding or replacing content later keeps the same
   link.
+- **Any document you actually have.** PDF, and every generation of Office: a
+  2003 `.ppt` and a 2024 `.pptx`, `.doc` and `.docx`, `.xls` and `.xlsx`, their
+  macro-enabled and template variants, the OpenDocument family, plus images,
+  text and ZIPs. A recipient sees the same rendered page whichever it was.
 - **You do the sending.** Companion never emails anybody a link. You copy it
   and share it wherever your recipient already is — WhatsApp, Slack, SMS, your
   own mail client. Nothing in the core path needs a mail provider.
