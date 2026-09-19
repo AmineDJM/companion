@@ -33,14 +33,14 @@ export function middleware(request: NextRequest): NextResponse {
     // Forward the token so the page never has to re-read the cookie store.
     const headers = new Headers(request.headers);
     headers.set(RECIPIENT_HEADER, existing);
-    return NextResponse.next({ request: { headers } });
+    return sealed(NextResponse.next({ request: { headers } }));
   }
 
   const token = generateToken();
   const headers = new Headers(request.headers);
   headers.set(RECIPIENT_HEADER, token);
 
-  const response = NextResponse.next({ request: { headers } });
+  const response = sealed(NextResponse.next({ request: { headers } }));
   response.cookies.set(cookieName, token, {
     httpOnly: true,
     sameSite: 'lax',
@@ -48,6 +48,20 @@ export function middleware(request: NextRequest): NextResponse {
     path: '/',
     maxAge: 30 * 24 * 60 * 60,
   });
+  return response;
+}
+
+/**
+ * Recipient responses must not be stored anywhere.
+ *
+ * The header set in next.config.ts is applied before the framework decides its
+ * own caching for a dynamic route, which leaves a revoked document sitting in a
+ * shared proxy under `must-revalidate`. Setting it here, on the way out, is the
+ * last word.
+ */
+function sealed(response: NextResponse): NextResponse {
+  response.headers.set('Cache-Control', 'private, no-store, max-age=0, must-revalidate');
+  response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet');
   return response;
 }
 

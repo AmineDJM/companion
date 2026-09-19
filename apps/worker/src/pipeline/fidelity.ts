@@ -158,8 +158,15 @@ export async function recordPreviewParity(input: {
   fileName: string;
   parsedPages: number;
   previewPages: number;
+  /**
+   * False for a file the viewer renders some other way — a spreadsheet shown as
+   * a sheet, a plain-text file shown as text. Those have no page images by
+   * design, and counting their absence as missing pages would report a failure
+   * where nothing is wrong.
+   */
+  rendersAsPages: boolean;
 }): Promise<void> {
-  if (input.parsedPages === 0) return;
+  if (!input.rendersAsPages || input.parsedPages === 0) return;
   const { db } = container();
 
   await db

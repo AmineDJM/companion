@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { AnalyticsEventType } from '@companion/shared';
 import { and, desc, eq, gte, isNull, schema, sql, ts } from '@companion/db';
 import { unansweredInsight } from '@companion/ai';
@@ -19,7 +20,13 @@ export interface AnalyticsEventInput {
   page?: number | null;
   durationMs?: number | null;
   metadata?: Record<string, string | number | boolean> | null;
-  /** Stable per-occurrence key. A repeat of the same key is dropped, not counted. */
+  /**
+   * Stable per-occurrence key. A repeat of the same key is dropped, not
+   * counted. When the caller has no stable id — a server-side event that
+   * happens exactly once — one is generated, so every row is keyed and a
+   * duplicate becomes something the unique index decides rather than
+   * something a timestamp heuristic guesses at.
+   */
   idempotencyKey?: string | null;
 }
 
@@ -35,17 +42,18 @@ export async function recordAnalyticsEvent(input: AnalyticsEventInput): Promise<
       page: input.page ?? null,
       durationMs: input.durationMs ?? null,
       metadata: input.metadata ?? null,
-      idempotencyKey: input.idempotencyKey ?? null,
+      idempotencyKey: input.idempotencyKey ?? randomUUID(),
       occurredAt: new Date(),
     });
-    // The unique index does the deduplication, so two concurrent retries of the
-    // same beacon cannot both win a read-then-write race.
-    await (input.idempotencyKey
-      ? insert.onConflictDoNothing({ target: schema.analyticsEvents.idempotencyKey })
-      : insert);
+    // The unique index does the deduplication, so two concurrent retries of
+    // the same beacon cannot both win a read-then-write race.
+    await insert.onConflictDoNothing({ target: schema.analyticsEvents.idempotencyKey });
   } catch (error) {
-    // Analytics must never break the recipient experience.
-    logger.warn('analytics event dropped', { type: input.type, error });
+    // Analytics must never break the recipient experience, so this does not
+    // throw — but a dropped event is data loss, and the reconciliation metric
+    // will report the counters drifting away from the events. Logged at error
+    // so the cause is visible before that happens.
+    logger.error('analytics event dropped', { type: input.type, error });
   }
 }
 

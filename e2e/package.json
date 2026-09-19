@@ -1,0 +1,17 @@
+{
+  "name": "@companion/e2e",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@companion/shared": "workspace:*",
+    "typescript": "^5.9.3"
+  }
+}

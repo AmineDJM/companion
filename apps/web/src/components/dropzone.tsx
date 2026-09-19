@@ -113,6 +113,7 @@ export function Dropzone({
           setDragging(false);
         }}
         onDrop={handleDrop}
+        data-testid="dropzone"
         className={clsx(
           'relative rounded-[22px] border-2 border-dashed bg-surface transition-colors duration-200 ease-[cubic-bezier(0.22,0.61,0.36,1)]',
           dragging ? 'border-accent bg-accent-soft/60' : 'border-line hover:border-line-strong',

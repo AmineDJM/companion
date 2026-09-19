@@ -142,25 +142,38 @@ interface ChunkRow extends Record<string, unknown> {
 }
 
 /**
- * Lexical half. `websearch_to_tsquery` handles quoted phrases and negation the
- * way a reader expects; the plain term list is a fallback for queries it
- * reduces to nothing.
+ * Lexical half.
+ *
+ * Two queries, not one. `websearch_to_tsquery` conjoins every term, which is
+ * right for a search box and wrong for a question: "what is the termination
+ * notice period?" becomes `termin & notic & period`, and a clause that says
+ * "terminate ... by giving sixty days written notice" matches none of it. So
+ * the *match* is a disjunction of the content words, which is what recall
+ * needs, and a row that also satisfies the strict query is scored higher,
+ * which is what precision needs. `ts_rank_cd` then does the rest: a passage
+ * covering more of the question outranks one covering less.
  */
+const STRICT_MATCH_BOOST = 2;
+
 async function lexicalSearch(companionId: string, question: string): Promise<ChunkRow[]> {
   const { db } = getContainer();
   const normalized = normaliseQuestion(question);
   const terms = lexicalTerms(question);
   if (normalized.length === 0) return [];
 
-  const fallback = terms.join(' | ');
+  const anyTerm = terms.join(' | ');
   const rows = await db.execute<ChunkRow>(sql`
     WITH q AS (
-      SELECT CASE
-        WHEN numnode(websearch_to_tsquery('english', ${normalized})) > 0
-          THEN websearch_to_tsquery('english', ${normalized})
-        WHEN ${fallback} <> '' THEN to_tsquery('english', ${fallback})
-        ELSE NULL
-      END AS query
+      SELECT
+        CASE
+          WHEN numnode(websearch_to_tsquery('english', ${normalized})) > 0
+            THEN websearch_to_tsquery('english', ${normalized})
+          ELSE NULL
+        END AS strict,
+        CASE
+          WHEN ${anyTerm} <> '' THEN to_tsquery('english', ${anyTerm})
+          ELSE NULL
+        END AS loose
     )
     SELECT
       c.id,
@@ -175,14 +188,21 @@ async function lexicalSearch(companionId: string, question: string): Promise<Chu
       c.range,
       c.section_title     AS "sectionTitle",
       c.text,
-      ts_rank_cd(to_tsvector('english', c.text), q.query)::float8 AS score
+      (
+        ts_rank_cd(to_tsvector('english', c.text), coalesce(q.loose, q.strict))
+        * CASE
+            WHEN q.strict IS NOT NULL AND to_tsvector('english', c.text) @@ q.strict
+              THEN ${STRICT_MATCH_BOOST}
+            ELSE 1
+          END
+      )::float8 AS score
     FROM chunks c
     JOIN files f ON f.id = c.file_id
     CROSS JOIN q
     WHERE c.companion_id = ${companionId}
       AND f.removed_at IS NULL
-      AND q.query IS NOT NULL
-      AND to_tsvector('english', c.text) @@ q.query
+      AND coalesce(q.loose, q.strict) IS NOT NULL
+      AND to_tsvector('english', c.text) @@ coalesce(q.loose, q.strict)
     ORDER BY score DESC
     LIMIT ${CANDIDATE_POOL}
   `);

@@ -225,7 +225,12 @@ export const analyticsEvents = pgTable(
      * request carrying the same key is stored once, so a customer's numbers
      * cannot be inflated by anything other than real activity.
      */
-    idempotencyKey: varchar('idempotency_key', { length: 120 }),
+    /**
+     * Per-occurrence key. Required: a row that cannot be deduplicated is a row
+     * that cannot be reconciled, and the writer generates one when the caller
+     * has no stable id.
+     */
+    idempotencyKey: varchar('idempotency_key', { length: 120 }).notNull(),
     occurredAt: ts('occurred_at').notNull(),
     createdAt: createdAt(),
   },

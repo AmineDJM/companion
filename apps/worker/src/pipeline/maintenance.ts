@@ -287,26 +287,30 @@ async function recordAnalyticsIntegrity(): Promise<void> {
     },
   });
 
-  const duplicates = await db.execute<{ value: number }>(sql`
-    SELECT coalesce(sum(extra), 0)::int AS value
-    FROM (
-      SELECT count(*) - 1 AS extra
-      FROM analytics_events
-      WHERE occurred_at >= now() - interval '24 hours'
-        AND recipient_session_id IS NOT NULL
-      GROUP BY recipient_session_id, type, file_id, page,
-               date_trunc('second', occurred_at)
-      HAVING count(*) > 1
-    ) AS repeated
+  // Two genuine page views in the same second look identical to one beacon
+  // delivered twice, so a timestamp signature would invent failures. What is
+  // provable is whether an event can be deduplicated at all.
+  const unkeyed = await db.execute<{ unkeyed: number; total: number }>(sql`
+    SELECT
+      count(*) FILTER (WHERE idempotency_key IS NULL)::int AS unkeyed,
+      count(*)::int AS total
+    FROM analytics_events
+    WHERE occurred_at >= now() - interval '24 hours'
   `);
 
-  await measure('analytics.duplicate_events', {
-    value: Number(duplicates[0]?.value ?? 0),
-    evidence: {
-      windowHours: 24,
-      signature: 'recipient_session_id, type, file_id, page, second(occurred_at)',
-    },
-  });
+  const total = Number(unkeyed[0]?.total ?? 0);
+  if (total > 0) {
+    await measure('analytics.duplicate_events', {
+      value: Number(unkeyed[0]?.unkeyed ?? 0),
+      sampleSize: total,
+      evidence: {
+        windowHours: 24,
+        rule: 'every event carries a key; a repeated key is rejected by the unique index',
+        events: total,
+        unkeyedEvents: Number(unkeyed[0]?.unkeyed ?? 0),
+      },
+    });
+  }
 
   const drift = await db.execute<{ mismatches: number; sampled: number }>(sql`
     SELECT

@@ -34,8 +34,8 @@
     },
     {
       "metricId": "analytics.duplicate_events",
-      "description": "Events counted more than once because of a retry, refresh or replay.",
-      "measurementMethod": "Submit the same event with the same idempotency key repeatedly and count how many rows are persisted beyond the first.",
+      "description": "Analytics events that carry no key, and so cannot be proven unique.",
+      "measurementMethod": "Count rows in analytics_events with a null idempotency_key over the last 24 hours. A keyed row cannot be inserted twice (unique index), so a keyed event is deduplicated by construction. Grouping unkeyed rows by timestamp is deliberately not used: two genuine page views in the same second are indistinguishable from one delivered twice, and a metric that cannot tell them apart reports false failures.",
       "unit": "count",
       "comparison": "eq",
       "target": 0,

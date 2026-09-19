@@ -228,6 +228,26 @@ describe('the shipped specification', () => {
     }
   });
 
+  it('only uses equality where the tolerance is exactly zero', () => {
+    // A count metric that allows a band must compare with lte. Written as `eq`
+    // against a non-zero failure threshold it inverts: a healthy zero is
+    // reported as a failure because zero is not five.
+    for (const entry of allMetrics()) {
+      if (entry.comparison === 'eq') {
+        expect(entry.failureThreshold, entry.metricId).toBe(entry.target);
+      }
+    }
+  });
+
+  it('judges every metric as healthy at its own target', () => {
+    // The cheapest possible sanity check, and the one that catches an inverted
+    // comparison: a value exactly on target must never be a failure.
+    for (const entry of allMetrics()) {
+      const result = evaluate(entry, { value: entry.target, sampleSize: 1_000 }, '1.0.0');
+      expect(result.status, entry.metricId).not.toBe('fail');
+    }
+  });
+
   it('demands zero tolerance where the spec says zero', () => {
     const zeroTolerance = [
       'security.cross_tenant_leaks',

@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        # pgvector is not optional: half the retrieval path does not exist
+        # without it, so CI runs the same image production does.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: companion
+          POSTGRES_PASSWORD: companion
+          POSTGRES_DB: companion_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U companion"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://companion:companion@127.0.0.1:5432/companion_test
+      TEST_DATABASE_URL: postgres://companion:companion@127.0.0.1:5432/companion_test
+      REDIS_URL: redis://127.0.0.1:6379
+      SESSION_SECRET: ci-session-secret-at-least-32-characters-long
+      APP_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_ROOT: .storage-ci
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm -r --filter=./packages/* build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test:unit
+
+      - name: Migrate
+        run: pnpm --filter @companion/db exec node dist/migrate.js
+
+      - name: Integration tests
+        run: pnpm test:integration
+
+      - name: Build the app
+        run: pnpm build:web
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: verify
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: companion
+          POSTGRES_PASSWORD: companion
+          POSTGRES_DB: companion_e2e
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U companion"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://companion:companion@127.0.0.1:5432/companion_e2e
+      SESSION_SECRET: ci-session-secret-at-least-32-characters-long
+      APP_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_APP_URL: http://127.0.0.1:3000
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_ROOT: .storage-e2e
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r --filter=./packages/* build
+      - run: pnpm --filter @companion/db exec node dist/migrate.js
+      - run: pnpm --filter @companion/db exec node dist/seed.js
+      - run: pnpm build:web
+
+      - name: Install the browser
+        run: pnpm --filter @companion/e2e exec playwright install --with-deps chromium
+
+      - name: Serve and test
+        run: |
+          pnpm --filter @companion/web start &
+          npx --yes wait-on http://127.0.0.1:3000/api/health --timeout 120000
+          pnpm test:e2e
+        env:
+          E2E_BASE_URL: http://127.0.0.1:3000
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7

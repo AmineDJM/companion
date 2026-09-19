@@ -52,7 +52,7 @@
       "description": "Jobs that have been running far longer than their type's 99th percentile.",
       "measurementMethod": "Count jobs in RUNNING whose start is older than ten times the type's P99 duration, or older than thirty minutes when no history exists.",
       "unit": "count",
-      "comparison": "eq",
+      "comparison": "lte",
       "target": 0,
       "warningThreshold": 0,
       "failureThreshold": 5,

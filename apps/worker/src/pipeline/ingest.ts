@@ -421,6 +421,10 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
     lowConfidenceUnits: result.lowConfidenceUnits ?? [],
   });
 
+  // Resolved once: it decides both whether page parity applies and what the
+  // text audit reads from.
+  const renderable = info.kind === 'PDF' ? bytes : await normalisedPdfFor(version);
+
   await recordPreviewParity({
     fileVersionId: version.fileVersionId,
     companionId: version.companionId,
@@ -428,6 +432,9 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
     fileName: version.filename,
     parsedPages: result.pageCount ?? 0,
     previewPages: version.previewUnits ?? 0,
+    // A PDF must always render to pages; anything else only counts when the
+    // ingest stage actually produced a rasterisable form.
+    rendersAsPages: info.kind === 'PDF' || (renderable !== null && preview === null),
   });
 
   if (result.units.length === 0) {
@@ -495,7 +502,6 @@ export async function handleExtractText(job: ExtractTextJob): Promise<void> {
       .where(eq(schema.files.id, version.fileId));
   }
 
-  const renderable = info.kind === 'PDF' ? bytes : await normalisedPdfFor(version);
   if (renderable) {
     await measurePreviewTextConsistency({
       fileVersionId: version.fileVersionId,

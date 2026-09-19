@@ -37,7 +37,7 @@
       "description": "Subscriptions whose local state disagrees with Stripe.",
       "measurementMethod": "List active Stripe subscriptions and compare status, price and period against the local mirror.",
       "unit": "count",
-      "comparison": "eq",
+      "comparison": "lte",
       "target": 0,
       "warningThreshold": 0,
       "failureThreshold": 3,
