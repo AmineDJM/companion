@@ -1,73 +1,14 @@
-import { createTransport, type Transporter } from 'nodemailer';
-import { appUrl, env, isProduction } from '../env';
-import { getContainer } from '../container';
+import type { EmailMessage } from '../email';
 
 /**
- * Outbound email.
+ * Message templates.
  *
- * Optional by design: Companion works without it (a recipient never needs an
- * email, and senders can use a password). When SMTP_URL is absent, messages are
- * logged in development and dropped with a warning in production, so a missing
- * mail provider degrades one feature rather than breaking sign-in.
+ * Delivery lives in `server/email`; this module only decides what a message
+ * says. Nothing here interpolates document content — a subject line is template
+ * text plus a Companion's name, which the sender chose.
  */
-export interface EmailMessage {
-  to: string;
-  subject: string;
-  text: string;
-  html?: string;
-}
-
-let transporter: Transporter | null = null;
-let attempted = false;
-
-function getTransporter(): Transporter | null {
-  if (attempted) return transporter;
-  attempted = true;
-  const url = env().SMTP_URL;
-  if (!url) return null;
-  transporter = createTransport(url);
-  return transporter;
-}
-
-export async function sendEmail(message: EmailMessage): Promise<boolean> {
-  const { logger } = getContainer();
-  const transport = getTransporter();
-
-  if (!transport) {
-    if (isProduction()) {
-      logger.warn('SMTP_URL is not configured; email not sent', { subject: message.subject });
-    } else {
-      logger.info('email (not sent, no SMTP configured)', {
-        subject: message.subject,
-        preview: message.text.slice(0, 400),
-      });
-    }
-    return false;
-  }
-
-  try {
-    await transport.sendMail({
-      from: env().EMAIL_FROM,
-      to: message.to,
-      subject: message.subject,
-      text: message.text,
-      ...(message.html ? { html: wrapHtml(message.html) } : {}),
-    });
-    return true;
-  } catch (error) {
-    logger.error('email delivery failed', { subject: message.subject, error });
-    return false;
-  }
-}
-
-function wrapHtml(body: string): string {
-  return `<!doctype html><html><body style="margin:0;padding:32px;background:#F7F7F8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#15161A">
-<div style="max-width:480px;margin:0 auto;background:#fff;border:1px solid #E4E5E9;border-radius:20px;padding:28px">
-${body}
-<p style="margin-top:28px;padding-top:16px;border-top:1px solid #E4E5E9;font-size:12px;color:#767983">
-<a href="${appUrl()}" style="color:#6374FF;text-decoration:none">Companion</a>
-</p></div></body></html>`;
-}
+export { sendEmail, emailProvider, emailProviderStatus } from '../email';
+export type { EmailMessage } from '../email';
 
 export function recipientCodeEmail(input: {
   code: string;

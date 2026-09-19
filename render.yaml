@@ -30,6 +30,9 @@ services:
   - type: keyvalue
     name: companion-redis
     plan: standard
+    # Same region as the services and the database. Every job dispatch is a
+    # round trip; across an ocean it is a slow one.
+    region: frankfurt
     ipAllowList: []
     # Jobs are durable in Postgres as well, so evicting a queued job loses
     # throughput rather than work.
@@ -60,14 +63,12 @@ services:
       # browser, so its postinstall must not fetch one.
       - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
         value: '1'
-      # The public origin recipients actually use. Share links, OAuth
-      # callbacks and Stripe returns are all built from it, so it must be the
-      # custom domain once you have one — not the onrender.com address.
-      # Set both before the first deploy: NEXT_PUBLIC_APP_URL is read at build
-      # time, so changing it later needs a rebuild, not just a restart.
+      # The public origin recipients actually use. Optional: until it is set,
+      # Render's own RENDER_EXTERNAL_URL is used, so the first deploy produces
+      # working share links with nothing filled in. Set it once a custom
+      # domain is attached — it is resolved per request, so a change takes
+      # effect on restart and needs no rebuild.
       - key: APP_URL
-        sync: false
-      - key: NEXT_PUBLIC_APP_URL
         sync: false
       - key: DATABASE_URL
         fromDatabase:
@@ -97,10 +98,6 @@ services:
         sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
-      - key: STRIPE_PUBLISHABLE_KEY
-        sync: false
-      - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-        sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
       - key: STRIPE_PRICE_PERSONAL_MONTHLY
@@ -118,6 +115,12 @@ services:
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # resend, smtp or none. `none` is a real choice for an instance that only
+      # shares public links; an identity-gated link cannot be opened without it.
+      - key: EMAIL_PROVIDER
+        value: none
+      - key: RESEND_API_KEY
         sync: false
       - key: SMTP_URL
         sync: false
@@ -164,6 +167,13 @@ services:
           type: web
           name: companion-web
           envVarKey: APP_URL
+      # A worker has no external URL of its own. Taking the web service's lets
+      # origin resolution here follow exactly the same precedence as there.
+      - key: RENDER_EXTERNAL_URL
+        fromService:
+          type: web
+          name: companion-web
+          envVarKey: RENDER_EXTERNAL_URL
       - key: STORAGE_DRIVER
         value: s3
       - key: S3_BUCKET

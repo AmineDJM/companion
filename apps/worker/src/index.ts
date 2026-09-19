@@ -9,6 +9,7 @@ import { handleClusterQuestions, handleFinalize, handlePurgeCompanion } from './
 import { handleChunk, handleEmbed } from './pipeline/index-content.js';
 import { handleExtractText, handleIngestUpload } from './pipeline/ingest.js';
 import { runMaintenance } from './pipeline/maintenance.js';
+import { libreOfficeAvailable, popplerAvailable } from './lib/convert.js';
 
 /**
  * Worker entrypoint.
@@ -99,15 +100,39 @@ async function dispatch(job: Job<CompanionJob>): Promise<void> {
   }
 }
 
+/**
+ * The conversion tools this worker can actually reach.
+ *
+ * Reported in the heartbeat because they live in the worker's image: the web
+ * service has no way to find out, and an image built without LibreOffice
+ * silently stops converting Office files rather than failing loudly.
+ * Probed once — a binary does not appear mid-process.
+ */
+let toolingTag: string | null = null;
+
+async function describeTooling(): Promise<string> {
+  if (toolingTag !== null) return toolingTag;
+  const [libreOffice, poppler] = await Promise.all([
+    libreOfficeAvailable().catch(() => false),
+    popplerAvailable().catch(() => false),
+  ]);
+  const release = process.env['RENDER_GIT_COMMIT']?.slice(0, 7) ?? 'dev';
+  toolingTag = [release, libreOffice ? 'soffice' : null, poppler ? 'poppler' : null]
+    .filter(Boolean)
+    .join('+');
+  return toolingTag;
+}
+
 async function heartbeat(): Promise<void> {
   const { db, logger } = container();
   try {
+    const version = await describeTooling();
     await db
       .insert(schema.workerHeartbeats)
       .values({
         id: WORKER_ID,
         hostname: hostname(),
-        version: process.env['RENDER_GIT_COMMIT']?.slice(0, 7) ?? 'dev',
+        version,
         queues: Object.values(QUEUE_NAMES),
         activeJobs,
         completedJobs,
@@ -118,6 +143,7 @@ async function heartbeat(): Promise<void> {
       .onConflictDoUpdate({
         target: schema.workerHeartbeats.id,
         set: {
+          version,
           activeJobs,
           completedJobs,
           failedJobs,

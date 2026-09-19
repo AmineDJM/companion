@@ -8,7 +8,7 @@ import { getDatabase, type Database } from '@companion/db';
 import { JobDispatcher, getRedis, type Redis } from '@companion/queue';
 import { resolve } from 'node:path';
 import { createStorage, type StorageDriver } from '@companion/storage';
-import { env } from './env.js';
+import { canonicalUrl, env } from './env.js';
 import { createLogger, type Logger } from './logger.js';
 
 export interface WorkerContainer {
@@ -34,7 +34,7 @@ export function container(): WorkerContainer {
 
   const storage = createStorage({
     driver: config.STORAGE_DRIVER,
-    publicBaseUrl: config.APP_URL,
+    publicBaseUrl: canonicalUrl(),
     signingSecret: config.SESSION_SECRET,
     localRoot: resolve(config.STORAGE_LOCAL_ROOT),
     ...(config.STORAGE_DRIVER === 's3'

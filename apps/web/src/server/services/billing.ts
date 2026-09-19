@@ -10,7 +10,7 @@ import {
 import { and, desc, eq, schema, sql } from '@companion/db';
 import type Stripe from 'stripe';
 import { getContainer } from '../container';
-import { appUrl } from '../env';
+import { canonicalUrl } from '../env';
 import { AUDIT_ACTIONS, recordAudit } from './audit';
 import { invalidatePlanCache } from './entitlements';
 
@@ -96,8 +96,8 @@ export async function createCheckoutSession(input: {
     mode: 'subscription',
     customer: customerId,
     line_items: [{ price: priceId, quantity: 1 }],
-    success_url: `${appUrl()}/billing?checkout=success`,
-    cancel_url: `${appUrl()}/pricing?checkout=cancelled`,
+    success_url: `${canonicalUrl()}/billing?checkout=success`,
+    cancel_url: `${canonicalUrl()}/pricing?checkout=cancelled`,
     allow_promotion_codes: true,
     billing_address_collection: 'auto',
     // Carried through to the webhook so the subscription lands on the right
@@ -136,7 +136,7 @@ export async function createPortalSession(workspaceId: string): Promise<string> 
 
   const session = await stripe().billingPortal.sessions.create({
     customer: customerId,
-    return_url: `${appUrl()}/billing`,
+    return_url: `${canonicalUrl()}/billing`,
   });
   return session.url;
 }

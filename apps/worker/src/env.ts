@@ -13,7 +13,11 @@ const envSchema = z.object({
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(12),
   REDIS_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
-  APP_URL: z.string().url().default('http://localhost:3000'),
+  /** Explicit public origin; see canonicalUrl(). */
+  APP_URL: z.string().url().optional(),
+  RENDER_EXTERNAL_URL: z.string().url().optional(),
+  RENDER_EXTERNAL_HOSTNAME: z.string().optional(),
+  RENDER_SERVICE_NAME: z.string().optional(),
 
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_BASE_URL: z.string().url().optional(),
@@ -50,7 +54,41 @@ const envSchema = z.object({
    */
   PREVIEW_TEXT_AUDIT_ENABLED: booleanish.default(true),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-});
+
+  /**
+   * Temporary diagnostic escape hatch for running production against local
+   * disk. A disk belongs to one instance, so a file the web service wrote is
+   * not visible here: every document would upload and never process.
+   */
+  ALLOW_UNSAFE_LOCAL_STORAGE: booleanish.default(false),
+})
+  .superRefine((value, context) => {
+    if (value.STORAGE_DRIVER === 's3') {
+      for (const key of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'] as const) {
+        if (!value[key]) {
+          context.addIssue({
+            code: 'custom',
+            path: [key],
+            message: `${key} is required when STORAGE_DRIVER=s3`,
+          });
+        }
+      }
+    }
+    if (
+      value.NODE_ENV === 'production' &&
+      value.STORAGE_DRIVER === 'local' &&
+      !value.ALLOW_UNSAFE_LOCAL_STORAGE
+    ) {
+      context.addIssue({
+        code: 'custom',
+        path: ['STORAGE_DRIVER'],
+        message:
+          'Production requires shared object storage (STORAGE_DRIVER=s3). The worker ' +
+          'and the web service run on different instances and cannot share a disk. ' +
+          'Set ALLOW_UNSAFE_LOCAL_STORAGE=true only to diagnose.',
+      });
+    }
+  });
 
 export type WorkerEnv = z.infer<typeof envSchema>;
 
@@ -67,4 +105,22 @@ export function env(): WorkerEnv {
   }
   cached = parsed.data;
   return cached;
+}
+
+/**
+ * The public origin, resolved the same way the web service resolves it.
+ *
+ * `APP_URL` is the explicit override; the platform's own address is used until
+ * a custom domain is attached.
+ */
+export function canonicalUrl(source: NodeJS.ProcessEnv = process.env): string {
+  // Read directly, so resolving an origin never depends on the rest of the
+  // configuration having parsed. Same precedence as the web service.
+  const explicit = source['APP_URL']?.trim();
+  const platform = source['RENDER_EXTERNAL_URL']?.trim();
+  const hostname = source['RENDER_EXTERNAL_HOSTNAME']?.trim();
+
+  const resolved =
+    explicit || platform || (hostname ? `https://${hostname}` : '') || 'http://localhost:3000';
+  return resolved.replace(/\/$/, '');
 }

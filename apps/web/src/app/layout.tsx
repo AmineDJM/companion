@@ -1,50 +1,58 @@
 import type { Metadata, Viewport } from 'next';
 import { BRAND } from '@companion/shared';
+import { canonicalUrl } from '@/server/env';
 import '../styles/globals.css';
 
-const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000').replace(/\/$/, '');
-
-export const metadata: Metadata = {
-  metadataBase: new URL(APP_URL),
-  title: {
-    default: 'Companion — Share Documents That Can Answer Questions',
-    template: '%s · Companion',
-  },
-  description: BRAND.description,
-  applicationName: BRAND.name,
-  keywords: [
-    'share documents securely',
-    'share PDF without download',
-    'document sharing link',
-    'expiring document link',
-    'revoke shared document',
-    'interactive PDF link',
-    'ask questions about a document',
-  ],
-  authors: [{ name: BRAND.name }],
-  alternates: { canonical: '/' },
-  openGraph: {
-    type: 'website',
-    siteName: BRAND.name,
-    url: APP_URL,
-    title: 'Companion — Share Documents That Can Answer Questions',
+/**
+ * Metadata is generated per request rather than exported as a constant, so the
+ * canonical origin is the one the server is actually reachable at. A constant
+ * would be frozen at build time, which is exactly when the origin is least
+ * reliably known.
+ */
+export function generateMetadata(): Metadata {
+  const origin = canonicalUrl();
+  return {
+    metadataBase: new URL(origin),
+    title: {
+      default: 'Companion — Share Documents That Can Answer Questions',
+      template: '%s · Companion',
+    },
     description: BRAND.description,
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Companion — Share Documents That Can Answer Questions',
-    description: BRAND.description,
-  },
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: { index: true, follow: true, 'max-snippet': -1, 'max-image-preview': 'large' },
-  },
-  icons: {
-    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
-    apple: [{ url: '/icon.svg' }],
-  },
-};
+    applicationName: BRAND.name,
+    keywords: [
+      'share documents securely',
+      'share PDF without download',
+      'document sharing link',
+      'expiring document link',
+      'revoke shared document',
+      'interactive PDF link',
+      'ask questions about a document',
+    ],
+    authors: [{ name: BRAND.name }],
+    alternates: { canonical: '/' },
+    openGraph: {
+      type: 'website',
+      siteName: BRAND.name,
+        url: origin,
+      title: 'Companion — Share Documents That Can Answer Questions',
+      description: BRAND.description,
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: 'Companion — Share Documents That Can Answer Questions',
+      description: BRAND.description,
+    },
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: { index: true, follow: true, 'max-snippet': -1, 'max-image-preview': 'large' },
+    },
+    icons: {
+      icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+      apple: [{ url: '/icon.svg' }],
+    },
+  };
+}
 
 export const viewport: Viewport = {
   width: 'device-width',

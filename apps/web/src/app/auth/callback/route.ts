@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { completeMagicLink } from '@/server/auth/accounts';
-import { appUrl } from '@/server/env';
+import { canonicalUrl } from '@/server/env';
 import { getContainer } from '@/server/container';
 import { claimDraft } from '@/server/services/drafts';
 import { eq, schema } from '@companion/db';
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: Request): Promise<NextResponse> {
   const token = new URL(request.url).searchParams.get('token');
-  const base = appUrl();
+  const base = canonicalUrl();
 
   if (!token) {
     return NextResponse.redirect(new URL('/login?error=invalid_link', base));

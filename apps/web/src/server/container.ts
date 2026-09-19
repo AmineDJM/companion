@@ -4,7 +4,7 @@ import { JobDispatcher, getRedis, type Redis } from '@companion/queue';
 import { createStorage, type StorageDriver } from '@companion/storage';
 import { resolve } from 'node:path';
 import Stripe from 'stripe';
-import { env, isProduction } from './env';
+import { canonicalUrl, env, isProduction } from './env';
 import { createLogger, type Logger } from './logger';
 
 /**
@@ -42,7 +42,7 @@ export function getContainer(): Container {
 
   const storage = createStorage({
     driver: config.STORAGE_DRIVER,
-    publicBaseUrl: config.APP_URL,
+    publicBaseUrl: canonicalUrl(),
     signingSecret: config.SESSION_SECRET,
     // Absolute so the worker, which starts from a different directory, writes
     // and reads the same objects during local development.

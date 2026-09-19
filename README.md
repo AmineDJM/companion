@@ -142,9 +142,11 @@ semantic indexing did not run rather than pretending it did.
 
 ```bash
 pnpm verify            # typecheck, lint, unit and integration tests
-pnpm test:unit         # pure logic: access, protection, quotas, measurement
+pnpm test:unit         # pure logic: access, protection, quotas, measurement, the blueprint
 pnpm test:integration  # real Postgres: authorisation, isolation, timing
 pnpm test:e2e          # Playwright, against a running app
+pnpm smoke:production  # a deployed instance: health, headers, readiness
+pnpm admin:bootstrap   # reconcile SUPER_ADMIN_EMAILS (idempotent, never demotes)
 ```
 
 The integration suite truncates every table, so it refuses to start unless
@@ -163,10 +165,15 @@ instance. Migrations run as the web service's pre-deploy command. Every secret
 is `sync:false`, so it is entered once in the Render dashboard and never
 appears in this repository.
 
-The blueprint is not a one-click product: `APP_URL`, the S3 credentials, the
-OpenAI key and `SUPER_ADMIN_EMAILS` have to be filled in before the first
-deploy, and `SUPER_ADMIN_EMAILS` specifically has to be set *before* you
-register, because the role is granted at account creation.
+The blueprint is not a one-click product: the S3 credentials, the OpenAI key,
+an email provider and `SUPER_ADMIN_EMAILS` are yours to fill in. `APP_URL` is
+optional — until you attach a custom domain, Render's own URL is used, so the
+first deploy produces working share links with nothing set.
+
+`/admin/quality` opens with a **Production readiness** report: every
+dependency, its status, and one line of remediation per failure. `pnpm
+smoke:production` runs the same checks from outside and exits non-zero on
+anything critical.
 
 One thing is not optional: **object storage must be S3-compatible**. A Render
 disk belongs to one instance and does not survive a redeploy, so it cannot hold

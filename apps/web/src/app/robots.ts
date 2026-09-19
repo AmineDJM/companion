@@ -1,12 +1,16 @@
 import type { MetadataRoute } from 'next';
+import { canonicalUrl } from '@/server/env';
 
-const APP_URL = (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000').replace(/\/$/, '');
+// Resolved per request rather than baked in: the origin is known at runtime on
+// every platform, and at build time only on some.
+export const dynamic = 'force-dynamic';
 
 /**
  * Public marketing pages are indexable. Everything that could expose customer
  * material — shared links, the app, the admin console, API routes — is not.
  */
 export default function robots(): MetadataRoute.Robots {
+  const origin = canonicalUrl();
   return {
     rules: [
       {
@@ -15,7 +19,7 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ['/c/', '/app/', '/admin/', '/api/', '/settings', '/billing', '/login', '/signup'],
       },
     ],
-    sitemap: `${APP_URL}/sitemap.xml`,
-    host: APP_URL,
+    sitemap: `${origin}/sitemap.xml`,
+    host: origin,
   };
 }

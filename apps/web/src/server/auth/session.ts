@@ -2,6 +2,7 @@ import { AppError, generateSlug } from '@companion/shared';
 import { and, eq, gt, isNull, schema, sql } from '@companion/db';
 import { cookies, headers } from 'next/headers';
 import { getContainer } from '../container';
+import { ensureSuperAdmin } from './super-admin';
 import { env, isProduction } from '../env';
 import { hashIp, hashToken, randomToken } from '../crypto';
 
@@ -121,6 +122,17 @@ export async function getAuthContext(): Promise<AuthContext | null> {
   const row = rows[0];
   if (!row || row.suspendedAt || row.deletedAt) return null;
 
+  // Reconcile the allowlist against what is persisted. Costs one string
+  // comparison against cached configuration in the overwhelming case; the
+  // write happens at most once per account, and never demotes.
+  const promoted = await ensureSuperAdmin({
+    userId: row.userId,
+    email: row.email,
+    currentRole: row.platformRole,
+    reason: 'session',
+  });
+  const platformRole = promoted ? ('super_admin' as const) : row.platformRole;
+
   const workspace = await resolveWorkspace(row.userId);
   if (!workspace) return null;
 
@@ -144,7 +156,7 @@ export async function getAuthContext(): Promise<AuthContext | null> {
       email: row.email,
       name: row.name,
       avatarUrl: row.avatarUrl,
-      platformRole: row.platformRole,
+      platformRole,
       emailVerifiedAt: row.emailVerifiedAt,
     },
     workspace,

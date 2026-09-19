@@ -11,15 +11,29 @@
 | A Stripe account (optional) | Checkout and the customer portal. No Connect. |
 | SMTP (optional) | Magic links and recipient identity codes. |
 
-## Storage is not a disk
+## Storage must be shared, not just durable
 
-A Render disk is attached to one instance and does not survive a redeploy. It
-cannot be where a customer's documents live. Set `STORAGE_DRIVER=s3` against a
-private bucket — S3, Cloudflare R2 or Backblaze B2 — and the durability probe
-in the maintenance sweep will write, re-read and digest a probe object to
-confirm it round-trips. Leave it on `local` in production and the same probe
-records a `CRITICAL` failure on `/admin/quality`. That is the intended
-behaviour, not a bug to work around.
+A platform disk *does* persist across restarts and redeploys. That is not the
+problem. The problem is that it belongs to **one service instance**, and
+Companion runs two services:
+
+- the web service accepts the upload and writes the bytes;
+- the worker reads them, converts, renders and indexes.
+
+With a disk, the worker cannot see what the web service wrote. Every document
+would upload successfully and then sit in processing forever. A disk also rules
+out running more than one instance of that service, and rules out zero-downtime
+deploys for it.
+
+So production requires shared object storage — S3, Cloudflare R2, Backblaze B2
+or any S3-compatible provider, behind the same `StorageDriver` interface. No
+domain logic knows which one you chose.
+
+This is enforced, not merely documented: with `NODE_ENV=production` and
+`STORAGE_DRIVER=local`, both services refuse to start and say why. If you need
+to boot a production build against local disk to diagnose something, set
+`ALLOW_UNSAFE_LOCAL_STORAGE=true` — and expect the readiness report to mark it
+CRITICAL until you remove it.
 
 The bucket must be private. Originals are never addressable by a browser: the
 viewer is given a route on this app, and a signed URL — when one is used at all
@@ -33,24 +47,32 @@ they happen once per release, before the new version takes traffic.
 
 Four things it cannot do for you, because they are secrets or decisions:
 
+Migrations run **once per deploy, from the web service only**. The worker has
+no migration step: it expects the schema to be there. Two services migrating
+the same database concurrently is a race, so the blueprint gives the job one
+owner, and a test asserts it stays that way.
+
 1. **Create the blueprint.** Push the repository, then New → Blueprint from it.
 2. **Fill in the `sync: false` variables** in the dashboard. The ones that
    change whether the product works at all:
 
    | Variable | Without it |
    | --- | --- |
-   | `APP_URL`, `NEXT_PUBLIC_APP_URL` | Share links, OAuth callbacks and Stripe returns point at the wrong host. Set these **before the first deploy** — `NEXT_PUBLIC_APP_URL` is read at build time. |
+   | `APP_URL` | *Optional.* Until it is set, Render's own URL is used, so share links work on the first deploy. Set it when you attach a custom domain; it is resolved per request, so no rebuild is needed. |
    | `S3_BUCKET` and its credentials | Nothing can be stored. Uploads fail. |
    | `OPENAI_API_KEY` | Documents open and index for keyword search; questions are unavailable and scanned pages are not read. |
    | `SUPER_ADMIN_EMAILS` | `/admin` is unreachable. See below. |
-   | `STRIPE_*` | No checkout, no portal. Plans fall back to their configured entitlements. |
-   | `SMTP_URL` | Magic links and recipient identity codes cannot be sent, so identity-gated links cannot be opened. |
+   | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | Checkout answers 503 with a clear message rather than failing oddly. Without the webhook secret, every Stripe event is rejected and subscriptions never activate. |
+   | `EMAIL_PROVIDER` + `RESEND_API_KEY` | Magic links and recipient identity codes cannot be sent, so identity-gated links cannot be opened. |
 
-3. **Sign up with an address you listed in `SUPER_ADMIN_EMAILS`.** The role is
-   granted at account creation, so the variable has to be set *before* you
-   register. If you sign up first, the account stays an ordinary user — set the
-   variable, then promote it from `/admin` with an account that already has the
-   role, or in the database.
+3. **Set `SUPER_ADMIN_EMAILS`, then sign up with a listed address.** Order does
+   not matter. The allowlist is reconciled at registration *and* on every
+   authenticated session, so adding the variable after you already registered
+   takes effect on your next request — no SQL, no support ticket. To apply it
+   immediately, run `pnpm admin:bootstrap` from a shell on the service
+   (`--dry-run` shows what it would change). It is idempotent and it never
+   demotes: removing an address does not revoke anyone, because a typo in an
+   environment variable must not be able to lock every operator out at once.
 4. **Point Stripe at the webhook endpoint** (`{APP_URL}/api/stripe/webhook`) and
    paste its signing secret into `STRIPE_WEBHOOK_SECRET`. Without it every event
    is rejected, so subscriptions never activate.
@@ -115,18 +137,97 @@ domain. It seeds no customers and no metrics.
 
 ## After a release
 
-Open `/admin/quality`. It lists every metric, its live value, and which release
-produced it. Two things are worth reading first:
+Two commands and one page.
 
-- **Blocking failures.** A `CRITICAL` or `HARD_FAIL` with its evidence
+```bash
+BASE=https://your-domain \
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD=... \
+pnpm smoke:production
+```
+
+Non-destructive and safe against production: it creates no Companion, charges
+nothing, sends no email, and the one object it writes is deleted by the same
+request. It checks reachability, the headers on a share link, that the admin
+API is closed to anonymous callers, and then reads the readiness report — which
+is where storage, providers, migrations, pgvector and worker liveness are
+verified. It exits non-zero if anything is CRITICAL, so it drops straight into
+a deploy pipeline.
+
+Without admin credentials it still runs, and reports the deep checks as skipped
+rather than passed.
+
+Then open **`/admin/quality`**. The page leads with **Production readiness**:
+every check, its status, and one line of remediation for each failure.
+
+```
+Production readiness                                   21 / 24
+
+Infrastructure
+  Database              PASS      Reachable in 3ms
+  pgvector extension    PASS      Installed
+  Migrations            PASS      5 applied, latest 0004_analytics_key_required.sql
+  Queue backend         PASS      Reachable in 1ms
+  Worker heartbeat      PASS      Last beat 8s ago, 0 active
+  Document conversion   PASS      LibreOffice and Poppler available
+Storage
+  Object storage        CRITICAL  STORAGE_DRIVER is local in production
+                                  Configure an S3-compatible object store. A disk is
+                                  attached to one instance, so the worker cannot read
+                                  what the web service wrote.
+```
+
+Below it, the quality metrics. The two are deliberately separate: readiness
+asks whether the deployment is plugged in, the metrics ask how well it
+performs. A perfect recall score on an instance with no object storage is not
+a healthy deployment.
+
+Worth reading first:
+
+- **CRITICAL readiness checks.** Something a customer would hit today.
+- **Blocking quality failures.** A `CRITICAL` or `HARD_FAIL` with its evidence
   attached — the storage keys that did not verify, the pages that went missing,
   the citation ids that did not resolve.
 - **Never measured.** A metric with no evidence in the window is reported as
   unmeasured rather than as passing. If a whole domain is unmeasured after a
   release, something is not running.
 
-Then press **Run golden corpus** to re-measure retrieval against the known
-answers and compare it with the previous release.
+Then press **Run golden corpus** to re-measure retrieval against known answers
+and compare it with the previous release.
+
+## First deployment acceptance test
+
+Run this once, by hand, against the real deployment. It is the test that
+exercises the product rather than its parts — and the only one that proves the
+web service and the worker are looking at the same storage.
+
+| # | Step | What proves it |
+| --- | --- | --- |
+| 1 | Sign up with the address in `SUPER_ADMIN_EMAILS` | Account created |
+| 2 | Open `/admin` | The console loads rather than 404s |
+| 3 | Upload a small real PDF | Upload accepted |
+| 4 | Watch `/admin/jobs` | `ingest_upload` moves to RUNNING — the worker sees the file the web service wrote |
+| 5 | Wait for the build screen | Page images appear |
+| 6 | `/admin/companions` → the Companion | Units extracted, count is non-zero |
+| 7 | Same page | Indexed chunks non-zero |
+| 8 | Same page | Status ACTIVE |
+| 9 | Open `/c/<slug>` in a private window | Loads with no account |
+| 10 | Look at it | The document renders |
+| 11 | Ask a question about its content | Answer arrives |
+| 12 | Read the answer | Grounded, no invented figures |
+| 13 | Click a citation | Navigates to that page |
+| 14 | Sender's Analytics tab | The visit and the question are recorded |
+| 15 | Turn downloads off | Setting saves |
+| 16 | Retry the download in the private window | 403, and no original URL anywhere in the network tab |
+| 17 | Revoke the Companion | Setting saves |
+| 18 | Reload the private window | Access refused immediately, no cached copy |
+| 19 | `/admin/usage` | Tokens and cost recorded for the question |
+| 20 | `/admin/audit` | Every action above is listed with an actor |
+| 21 | `/admin/quality` | Readiness green; ingestion, viewer and answer metrics recorded for this document |
+
+Step 4 is the one that catches a storage misconfiguration, and step 16 the one
+that catches a leaked original. If the first eight steps pass, the two services
+share storage and the queue works — which is most of what a first deploy can
+get wrong.
 
 ## Backups
 

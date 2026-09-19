@@ -1,7 +1,7 @@
 import { AppError, DEFAULT_BRANDING } from '@companion/shared';
 import { and, eq, gt, schema, sql } from '@companion/db';
 import { getContainer } from '../container';
-import { env } from '../env';
+import { ensureSuperAdmin } from './super-admin';
 import { hashPassword, hashToken, randomToken, verifyPassword } from '../crypto';
 import { recordAudit } from '../services/audit';
 import { createSession, revokeAllSessions, uniqueWorkspaceSlug } from './session';
@@ -254,28 +254,12 @@ export async function completeMagicLink(token: string): Promise<{
 }
 
 /**
- * Promotes an account listed in SUPER_ADMIN_EMAILS at creation time. This is
- * the only place the role is granted outside the explicit admin UI, and it is
- * driven purely by server-side configuration.
+ * Promotes a newly created account when the allowlist names it.
+ *
+ * The same reconciliation runs on every authenticated session, so an address
+ * added after the account existed is picked up there. This exists so the very
+ * first operator is an admin the moment they finish registering.
  */
 export async function applySuperAdminBootstrap(email: string, userId: string): Promise<boolean> {
-  const configured = (env().SUPER_ADMIN_EMAILS ?? '')
-    .split(/[,\s;]+/)
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-  if (!configured.includes(email.trim().toLowerCase())) return false;
-
-  const { db } = getContainer();
-  await db
-    .update(schema.users)
-    .set({ platformRole: 'super_admin', updatedAt: new Date() })
-    .where(eq(schema.users.id, userId));
-  await recordAudit({
-    action: 'admin.role_bootstrapped',
-    actorType: 'system',
-    targetType: 'user',
-    targetId: userId,
-    metadata: { source: 'SUPER_ADMIN_EMAILS' },
-  });
-  return true;
+  return ensureSuperAdmin({ userId, email, currentRole: 'user', reason: 'registration' });
 }

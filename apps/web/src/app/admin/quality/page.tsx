@@ -1,6 +1,11 @@
 import { formatRelativeTime } from '@companion/shared';
 import { requireSuperAdmin } from '@/server/auth/session';
 import { qualityOverview, recentQualityRuns, type MetricRow } from '@/server/services/admin-quality';
+import {
+  conversionToolingCheck,
+  productionReadiness,
+  type ReadinessCheck,
+} from '@/server/services/readiness';
 import { AdminBadge, AdminCard, AdminPage, AdminStat, AdminTable } from '@/components/admin/shell';
 import { EvaluationRunner } from '@/components/admin/evaluation-runner';
 
@@ -40,9 +45,29 @@ function formatTarget(row: MetricRow): string {
   return `${symbol} ${target}`;
 }
 
+function readinessTone(status: ReadinessCheck['status']): 'good' | 'warn' | 'bad' {
+  return status === 'PASS' ? 'good' : status === 'WARNING' ? 'warn' : 'bad';
+}
+
 export default async function AdminQualityPage() {
   await requireSuperAdmin();
-  const [overview, runs] = await Promise.all([qualityOverview(), recentQualityRuns()]);
+  const [overview, runs, readiness, conversion] = await Promise.all([
+    qualityOverview(),
+    recentQualityRuns(),
+    productionReadiness(),
+    conversionToolingCheck(),
+  ]);
+
+  // The conversion probe needs the worker's heartbeat, so it is gathered
+  // separately and folded in here rather than inside the report.
+  const checks = [...readiness.checks, conversion];
+  const passed = checks.filter((check) => check.status === 'PASS').length;
+  const blocking = checks.filter((check) => check.status === 'CRITICAL');
+  const advisory = checks.filter((check) => check.status === 'WARNING');
+  const groups = new Map<ReadinessCheck['group'], ReadinessCheck[]>();
+  for (const check of checks) {
+    groups.set(check.group, [...(groups.get(check.group) ?? []), check]);
+  }
 
   const byDomain = new Map<string, MetricRow[]>();
   for (const metric of overview.metrics) {
@@ -55,6 +80,58 @@ export default async function AdminQualityPage() {
       description={`Specification ${overview.qualitySpecVersion} · last ${overview.windowHours} hours of evidence`}
       actions={<EvaluationRunner />}
     >
+      <AdminCard
+        className="mb-6"
+        title="Production readiness"
+        action={
+          <div className="flex items-center gap-2">
+            <span className="tabular-nums text-[15px] text-[color:var(--color-admin-ink)]">
+              {passed} / {checks.length}
+            </span>
+            <AdminBadge tone={blocking.length > 0 ? 'bad' : advisory.length > 0 ? 'warn' : 'good'}>
+              {blocking.length > 0
+                ? `${blocking.length} blocking`
+                : advisory.length > 0
+                  ? `${advisory.length} to review`
+                  : 'ready'}
+            </AdminBadge>
+          </div>
+        }
+      >
+        <div className="border-b border-[color:var(--admin-line)] px-4 py-2.5 text-[12px] text-[color:var(--color-admin-muted)]">
+          {readiness.environment} · build {readiness.release}
+          {readiness.serviceName ? ` · ${readiness.serviceName}` : ''}
+        </div>
+        {[...groups.entries()].map(([group, entries]) => (
+          <div key={group} className="border-b border-[color:var(--admin-line)] last:border-b-0">
+            <div className="px-4 pb-1 pt-3 text-[11px] uppercase tracking-[0.06em] text-[color:var(--color-admin-muted)]">
+              {group}
+            </div>
+            {entries.map((check) => (
+              <div
+                key={check.id}
+                className="flex flex-wrap items-start gap-x-3 gap-y-1 px-4 py-2.5"
+              >
+                <span className="min-w-[13rem] text-[13px] text-[color:var(--color-admin-ink)]">
+                  {check.label}
+                </span>
+                <AdminBadge tone={readinessTone(check.status)}>{check.status}</AdminBadge>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12.5px] text-[color:var(--color-admin-muted)]">
+                    {check.detail}
+                  </p>
+                  {check.remediation ? (
+                    <p className="mt-0.5 text-[12.5px] text-[color:var(--color-admin-ink)] opacity-80">
+                      {check.remediation}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </AdminCard>
+
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <AdminStat label="Passing" value={String(overview.counts.pass)} />
         <AdminStat label="Warnings" value={String(overview.counts.warn)} />
