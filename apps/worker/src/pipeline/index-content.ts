@@ -1,5 +1,10 @@
 import { chunkUnits, optionsForKind, type ChunkSourceUnit } from '@companion/ai';
-import { estimateTokens, estimateCostUsd, EMBEDDING_DIMENSIONS } from '@companion/shared';
+import {
+  EMBEDDING_DIMENSIONS,
+  PRICING_VERSION,
+  estimateCostUsd,
+  estimateTokens,
+} from '@companion/shared';
 import { and, asc, eq, inArray, isNull, schema, sql } from '@companion/db';
 import type { ChunkJob, EmbedJob } from '@companion/queue';
 import { container } from '../container.js';
@@ -182,6 +187,7 @@ export async function handleEmbed(job: EmbedJob): Promise<void> {
         succeeded: true,
         // Indexing is a cost of doing business, not a customer question.
         billable: false,
+        pricingVersion: PRICING_VERSION,
         occurredAt: new Date(),
       });
 
@@ -200,6 +206,7 @@ export async function handleEmbed(job: EmbedJob): Promise<void> {
         latencyMs: Date.now() - started,
         succeeded: false,
         billable: false,
+        pricingVersion: PRICING_VERSION,
         errorCode: error instanceof Error ? error.name : 'unknown',
         occurredAt: new Date(),
       });

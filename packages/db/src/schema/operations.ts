@@ -44,6 +44,8 @@ export const usageLedger = pgTable(
     billable: boolean('billable').notNull().default(false),
     errorCode: varchar('error_code', { length: 64 }),
     requestId: varchar('request_id', { length: 120 }),
+    /** The price table version this row's cost was computed with. */
+    pricingVersion: varchar('pricing_version', { length: 16 }).notNull().default('2026.01'),
     occurredAt: ts('occurred_at').notNull(),
     createdAt: createdAt(),
   },

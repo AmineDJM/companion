@@ -2,6 +2,7 @@ import {
   DEFAULT_PLATFORM_LIMITS,
   PLAN_DEFINITIONS,
   PLAN_KEYS,
+  isFreePlan,
   listPlans,
 } from '@companion/shared';
 import { eq, sql } from 'drizzle-orm';
@@ -95,7 +96,8 @@ export async function seedConfiguration(db: Database): Promise<void> {
 }
 
 function stripePriceEnv(planKey: string, interval: 'MONTHLY' | 'ANNUAL'): string | null {
-  if (planKey === 'free') return null;
+  // Not a capability decision: the free plan has no Stripe price to look up.
+  if (isFreePlan(planKey)) return null;
   return process.env[`STRIPE_PRICE_${planKey.toUpperCase()}_${interval}`] ?? null;
 }
 

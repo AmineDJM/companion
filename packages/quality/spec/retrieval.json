@@ -72,8 +72,8 @@
       "warningThreshold": 0.8,
       "failureThreshold": 0.65,
       "severity": "WARNING",
-      "thresholdOrigin": "INDUSTRY_STANDARD",
-      "standardReference": "Jarvelin & Kekalainen, Cumulated gain-based evaluation of IR techniques, ACM TOIS 20(4), 2002.",
+      "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
+      "standardReference": "Metric definition: Jarvelin & Kekalainen, Cumulated gain-based evaluation of IR techniques, ACM TOIS 20(4), 2002. The 0.9 target is a Companion house threshold, not a published one.",
       "repairStrategy": "manual_investigation",
       "minimumSampleSize": 10
     },

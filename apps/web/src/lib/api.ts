@@ -96,3 +96,16 @@ export function uploadWithProgress(
     request.send(formData);
   });
 }
+
+/**
+ * A per-occurrence identifier for a viewer event.
+ *
+ * Beacons are retried on flaky connections and some of them fire from two
+ * lifecycle handlers at once, so the server needs a way to tell a repeat from
+ * a second occurrence. randomUUID is not available over plain HTTP on older
+ * browsers, hence the fallback.
+ */
+export function eventId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}

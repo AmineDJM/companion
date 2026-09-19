@@ -211,10 +211,14 @@ export function enforceQuoteLimit(
   if (budget <= 0) return { quote: null, truncated: true };
   if (quote.length <= budget) return { quote, truncated: false };
 
-  // Cut on a word boundary so a truncated quote still reads as prose.
-  const slice = quote.slice(0, budget);
+  // Cut on a word boundary so a truncated quote still reads as prose. The
+  // ellipsis counts against the budget: without that, every truncation would
+  // overshoot by one character and a long session would drift past its cap.
+  const room = budget - 1;
+  if (room <= 0) return { quote: null, truncated: true };
+  const slice = quote.slice(0, room);
   const lastSpace = slice.lastIndexOf(' ');
-  const cut = lastSpace > budget * 0.6 ? slice.slice(0, lastSpace) : slice;
+  const cut = lastSpace > room * 0.6 ? slice.slice(0, lastSpace) : slice;
   return { quote: `${cut.trimEnd()}…`, truncated: true };
 }
 

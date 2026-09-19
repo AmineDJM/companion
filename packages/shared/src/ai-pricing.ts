@@ -17,6 +17,15 @@ export interface ModelPricing {
   effectiveFrom: string;
 }
 
+/**
+ * Bumped whenever any price below changes.
+ *
+ * Every ledger row stores the version that priced it, so a historical cost can
+ * be re-derived exactly as it was computed. Re-pricing history with today's
+ * table would silently rewrite what a customer was told they spent.
+ */
+export const PRICING_VERSION = '2026.01';
+
 export const DEFAULT_ANSWER_MODEL = 'gpt-5.6-luna';
 export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
 export const EMBEDDING_DIMENSIONS = 1536;

@@ -3,10 +3,11 @@
 import { formatDateShort } from '@companion/shared';
 import { clsx } from 'clsx';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { apiFetch } from '../../lib/api';
+import { apiFetch, eventId } from '../../lib/api';
 import { AskBar, ChatPanel, type ChatMessage, type Citation } from './ask-panel';
 import { DocumentView } from './document-view';
 import { FileDrawer } from './file-drawer';
+import { VitalsReporter } from './vitals';
 import type { ViewerData, ViewerFile, ViewerPreview } from './types';
 import { CompanionMark } from '../ui/logo';
 import {
@@ -36,6 +37,9 @@ export function ViewerShell({ initial }: { initial: ViewerData }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [selection, setSelection] = useState<string | null>(null);
   const dwellRef = useRef<{ page: number; since: number }>({ page: 1, since: Date.now() });
+  // Stable for the life of this mount, so a remount or a double effect cannot
+  // report the same open twice.
+  const openIdRef = useRef<string>(eventId());
 
   const activeFile = initial.files.find((file) => file.id === activeFileId) ?? null;
 
@@ -50,7 +54,7 @@ export function ViewerShell({ initial }: { initial: ViewerData }) {
   );
 
   useEffect(() => {
-    track({ type: 'companion_opened' });
+    track({ type: 'companion_opened', eventId: openIdRef.current });
   }, [track]);
 
   // Report dwell time per page so the sender learns which pages mattered.
@@ -62,6 +66,9 @@ export function ViewerShell({ initial }: { initial: ViewerData }) {
         fileId: activeFileId,
         page: dwellRef.current.page,
         durationMs: Math.min(elapsed, 30 * 60 * 1000),
+        // Hiding the tab and unloading it both flush the same dwell window;
+        // keying on when that window opened makes the second report a no-op.
+        eventId: `dwell-${activeFileId}-${dwellRef.current.page}-${dwellRef.current.since}`,
       });
     }
   }, [activeFileId, track]);
@@ -126,6 +133,7 @@ export function ViewerShell({ initial }: { initial: ViewerData }) {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas">
+      <VitalsReporter slug={initial.slug} />
       <header className="z-30 flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface px-2.5 sm:px-4">
         {initial.multiFile ? (
           <button

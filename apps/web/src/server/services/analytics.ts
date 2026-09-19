@@ -19,12 +19,14 @@ export interface AnalyticsEventInput {
   page?: number | null;
   durationMs?: number | null;
   metadata?: Record<string, string | number | boolean> | null;
+  /** Stable per-occurrence key. A repeat of the same key is dropped, not counted. */
+  idempotencyKey?: string | null;
 }
 
 export async function recordAnalyticsEvent(input: AnalyticsEventInput): Promise<void> {
   const { db, logger } = getContainer();
   try {
-    await db.insert(schema.analyticsEvents).values({
+    const insert = db.insert(schema.analyticsEvents).values({
       companionId: input.companionId,
       workspaceId: input.workspaceId,
       recipientSessionId: input.recipientSessionId ?? null,
@@ -33,8 +35,14 @@ export async function recordAnalyticsEvent(input: AnalyticsEventInput): Promise<
       page: input.page ?? null,
       durationMs: input.durationMs ?? null,
       metadata: input.metadata ?? null,
+      idempotencyKey: input.idempotencyKey ?? null,
       occurredAt: new Date(),
     });
+    // The unique index does the deduplication, so two concurrent retries of the
+    // same beacon cannot both win a read-then-write race.
+    await (input.idempotencyKey
+      ? insert.onConflictDoNothing({ target: schema.analyticsEvents.idempotencyKey })
+      : insert);
   } catch (error) {
     // Analytics must never break the recipient experience.
     logger.warn('analytics event dropped', { type: input.type, error });

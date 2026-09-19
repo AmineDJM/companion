@@ -21,3 +21,5 @@ tmp/
 AGENTS.md
 
 dump.rdb
+
+.env.test

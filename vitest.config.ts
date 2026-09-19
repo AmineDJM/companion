@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 /**
@@ -11,7 +12,14 @@ const workerSourceExtension = {
 };
 
 export default defineConfig({
-  resolve: { alias: [workerSourceExtension] },
+  resolve: {
+    alias: [
+      workerSourceExtension,
+      // Integration tests import the web app's services directly, which use
+      // the same `@/` alias Next.js resolves at build time.
+      { find: /^@\//, replacement: `${resolve(import.meta.dirname, 'apps/web/src')}/` },
+    ],
+  },
   test: {
     projects: [
       {
@@ -28,8 +36,12 @@ export default defineConfig({
           include: ['tests/integration/**/*.test.ts'],
           environment: 'node',
           globals: false,
-          // Integration tests share one Postgres schema, so they run serially.
+          // Integration tests share one Postgres schema and truncate between
+          // files, so a second worker would deadlock against the first.
           fileParallelism: false,
+          maxWorkers: 1,
+          minWorkers: 1,
+          poolOptions: { forks: { singleFork: true }, threads: { singleThread: true } },
           testTimeout: 60_000,
           hookTimeout: 120_000,
           setupFiles: ['tests/integration/setup.ts'],

@@ -137,6 +137,12 @@ export const unlockSchema = z.object({
 
 export const analyticsEventSchema = z.object({
   type: z.enum(ANALYTICS_EVENT_TYPES),
+  /**
+   * Client-generated id for this occurrence. A viewer beacon is retried on an
+   * unreliable connection, and a retry must not become a second page view, so
+   * the same id is rejected at the database rather than counted twice.
+   */
+  eventId: z.string().trim().min(8).max(64).optional(),
   fileId: z.string().uuid().nullable().optional(),
   page: z.number().int().positive().nullable().optional(),
   /** Milliseconds spent on the unit, for dwell-time aggregation. */
@@ -144,6 +150,33 @@ export const analyticsEventSchema = z.object({
   metadata: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
 });
 export type AnalyticsEventInput = z.infer<typeof analyticsEventSchema>;
+
+/**
+ * Field measurements from a real viewer's browser.
+ *
+ * Only the three Core Web Vitals plus the one metric that matters most for this
+ * product — how long until the first page of the document is actually visible.
+ * A device class, never a fingerprint.
+ */
+export const VIEWER_VITAL_METRICS = ['lcp', 'inp', 'cls', 'ttfb', 'first_page'] as const;
+export type ViewerVitalMetric = (typeof VIEWER_VITAL_METRICS)[number];
+
+export const viewerVitalsSchema = z.object({
+  metrics: z
+    .array(
+      z.object({
+        metric: z.enum(VIEWER_VITAL_METRICS),
+        // CLS is unitless and small; the others are milliseconds. The upper
+        // bound rejects a clock-skewed outlier rather than letting it move a
+        // percentile.
+        value: z.number().nonnegative().max(600_000),
+      }),
+    )
+    .min(1)
+    .max(8),
+  deviceClass: z.enum(['phone', 'tablet', 'desktop']).optional(),
+});
+export type ViewerVitalsInput = z.infer<typeof viewerVitalsSchema>;
 
 export const checkoutSchema = z.object({
   planKey: z.enum(PLAN_KEYS),

@@ -34,6 +34,7 @@ const NAV: { group: string; items: { href: string; label: string }[] }[] = [
       { href: '/admin/providers', label: 'AI & providers' },
       { href: '/admin/storage', label: 'Storage' },
       { href: '/admin/jobs', label: 'Jobs' },
+      { href: '/admin/quality', label: 'Quality' },
     ],
   },
   {

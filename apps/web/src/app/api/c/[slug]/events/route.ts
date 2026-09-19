@@ -30,6 +30,9 @@ export const POST = route(async (request, context: { params: Promise<{ slug: str
     page: input.page ?? null,
     durationMs: input.durationMs ?? null,
     metadata: input.metadata ?? null,
+    // Scoped to the session so one viewer's id can never suppress another's
+    // event, however the client generates it.
+    idempotencyKey: input.eventId && session ? `${session.id}:${input.eventId}`.slice(0, 120) : null,
   });
 
   return noContent();

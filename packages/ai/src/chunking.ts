@@ -200,9 +200,13 @@ function withOverlap(previous: string | undefined, next: string, overlapTokens: 
 export function normaliseWhitespace(text: string): string {
   return text
     .replace(/\r\n?/g, '\n')
-    // Collapse the runs of spaces PDF extraction leaves between glyphs.
-    .replace(/[ \t ]{2,}/g, ' ')
+    // Collapse the runs of spaces PDF extraction leaves between glyphs. The
+    // escape is a non-breaking space, which PDF text layers emit constantly.
+    .replace(/[ \t\u00a0]{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
+    // Control characters are exactly what must be stripped from an untrusted
+    // document before it reaches an index or a prompt.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '')
     .trim();
 }

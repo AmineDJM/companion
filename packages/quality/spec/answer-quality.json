@@ -14,7 +14,7 @@
       "severity": "HARD_FAIL",
       "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
       "standardReference": null,
-      "repairStrategy": "none",
+      "repairStrategy": "invalidate_retrieval_cache",
       "minimumSampleSize": 1
     },
     {
@@ -29,7 +29,7 @@
       "severity": "HARD_FAIL",
       "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
       "standardReference": null,
-      "repairStrategy": "none",
+      "repairStrategy": "invalidate_retrieval_cache",
       "minimumSampleSize": 1
     },
     {
@@ -44,7 +44,7 @@
       "severity": "HARD_FAIL",
       "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
       "standardReference": null,
-      "repairStrategy": "none",
+      "repairStrategy": "manual_investigation",
       "minimumSampleSize": 1
     },
     {
@@ -59,7 +59,7 @@
       "severity": "HARD_FAIL",
       "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
       "standardReference": null,
-      "repairStrategy": "none",
+      "repairStrategy": "manual_investigation",
       "minimumSampleSize": 5
     },
     {
@@ -74,7 +74,7 @@
       "severity": "HARD_FAIL",
       "thresholdOrigin": "COMPANION_HOUSE_STANDARD",
       "standardReference": null,
-      "repairStrategy": "none",
+      "repairStrategy": "manual_investigation",
       "minimumSampleSize": 5
     },
     {

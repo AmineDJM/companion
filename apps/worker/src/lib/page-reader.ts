@@ -1,5 +1,5 @@
 import { assessLegibility, needsVisionRead, type LegibilityReport } from '@companion/quality';
-import { estimateCostUsd } from '@companion/shared';
+import { PRICING_VERSION, estimateCostUsd } from '@companion/shared';
 import { schema } from '@companion/db';
 import { container } from '../container.js';
 import { env } from '../env.js';
@@ -181,6 +181,7 @@ async function recordVisionUsage(input: {
       // Reading a page is an indexing cost, never a customer question.
       billable: false,
       errorCode: input.errorCode ?? null,
+      pricingVersion: PRICING_VERSION,
       occurredAt: new Date(),
     });
   } catch (error) {

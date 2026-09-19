@@ -75,6 +75,12 @@ export default tseslint.config(
     rules: { 'no-restricted-imports': 'off' },
   },
   {
+    // The one audited place where a plan key may be named: these helpers exist
+    // so that presentational and checkout-flow comparisons are not scattered.
+    files: ['packages/shared/src/entitlements.ts'],
+    rules: { 'no-restricted-syntax': 'off' },
+  },
+  {
     files: ['**/*.config.{ts,mjs,js}', 'scripts/**/*', 'packages/db/src/{migrate,seed}.ts'],
     rules: { 'no-console': 'off' },
   },

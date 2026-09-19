@@ -1,6 +1,7 @@
 import { and, eq, isNull, lte, schema, sql } from '@companion/db';
 import { measure } from '../lib/quality.js';
 import { container } from '../container.js';
+import { runBillingIntegrity } from './billing-integrity.js';
 import { runStorageIntegritySweep } from './integrity.js';
 
 /**
@@ -20,6 +21,9 @@ export async function runMaintenance(): Promise<void> {
     runStorageIntegritySweep(),
     recordJobReliability(),
     recordLatencyPercentiles(),
+    recordAnalyticsIntegrity(),
+    runBillingIntegrity(),
+    recordViewerVitals(),
   ]);
 }
 
@@ -249,6 +253,128 @@ async function recordLatencyPercentiles(): Promise<void> {
       value: answers[0]?.p95 ?? 0,
       sampleSize: answers[0]?.samples ?? 0,
       evidence: { windowHours: 24, p50Ms: answers[0]?.p50 ?? 0 },
+    });
+  }
+}
+
+/**
+ * Analytics integrity.
+ *
+ * Three invariants, each stated as an explicit formula rather than a feeling
+ * that the numbers look plausible:
+ *
+ *   contamination  = events whose workspace differs from their Companion's
+ *   duplicates     = events identical in session, type, file, page and second
+ *   reconciliation = |companions.question_count - count(question events)|
+ *
+ * Tenancy is checked by joining through to the Companion rather than trusting
+ * the denormalised column, because a denormalised column that is wrong is
+ * exactly the defect being looked for.
+ */
+async function recordAnalyticsIntegrity(): Promise<void> {
+  const { db } = container();
+
+  const contamination = await db
+    .select({ value: sql<number>`count(*)::int` })
+    .from(schema.analyticsEvents)
+    .innerJoin(schema.companions, eq(schema.companions.id, schema.analyticsEvents.companionId))
+    .where(sql`${schema.analyticsEvents.workspaceId} IS DISTINCT FROM ${schema.companions.workspaceId}`);
+
+  await measure('analytics.tenant_contamination', {
+    value: contamination[0]?.value ?? 0,
+    evidence: {
+      rule: 'analytics_events.workspace_id must equal companions.workspace_id',
+    },
+  });
+
+  const duplicates = await db.execute<{ value: number }>(sql`
+    SELECT coalesce(sum(extra), 0)::int AS value
+    FROM (
+      SELECT count(*) - 1 AS extra
+      FROM analytics_events
+      WHERE occurred_at >= now() - interval '24 hours'
+        AND recipient_session_id IS NOT NULL
+      GROUP BY recipient_session_id, type, file_id, page,
+               date_trunc('second', occurred_at)
+      HAVING count(*) > 1
+    ) AS repeated
+  `);
+
+  await measure('analytics.duplicate_events', {
+    value: Number(duplicates[0]?.value ?? 0),
+    evidence: {
+      windowHours: 24,
+      signature: 'recipient_session_id, type, file_id, page, second(occurred_at)',
+    },
+  });
+
+  const drift = await db.execute<{ mismatches: number; sampled: number }>(sql`
+    SELECT
+      count(*) FILTER (WHERE c.question_count <> e.events)::int AS mismatches,
+      count(*)::int AS sampled
+    FROM companions c
+    JOIN LATERAL (
+      SELECT count(*)::int AS events
+      FROM analytics_events a
+      WHERE a.companion_id = c.id
+        AND a.type IN ('question_asked', 'question_unanswered')
+    ) e ON true
+    WHERE c.deleted_at IS NULL
+      AND c.question_count > 0
+  `);
+
+  const sampled = Number(drift[0]?.sampled ?? 0);
+  if (sampled > 0) {
+    await measure('analytics.reconciliation_errors', {
+      value: Number(drift[0]?.mismatches ?? 0),
+      sampleSize: sampled,
+      evidence: {
+        formula: "companions.question_count = count(analytics_events WHERE type IN ('question_asked','question_unanswered'))",
+        companionsChecked: sampled,
+      },
+    });
+  }
+}
+
+/**
+ * Core Web Vitals, from the field.
+ *
+ * Reported at the 75th percentile across the last 28 days, which is how the
+ * Web Vitals programme defines a "good" experience — a p50 would hide the
+ * quarter of readers having a bad one. Lab numbers are deliberately not used:
+ * the question is what real recipients' devices did.
+ */
+async function recordViewerVitals(): Promise<void> {
+  const { db } = container();
+
+  const rows = await db.execute<{ metric: string; p75: number; samples: number }>(sql`
+    SELECT
+      metric,
+      percentile_cont(0.75) WITHIN GROUP (ORDER BY value)::double precision AS p75,
+      count(*)::int AS samples
+    FROM viewer_vitals
+    WHERE occurred_at >= now() - interval '28 days'
+    GROUP BY metric
+  `);
+
+  const metricIds: Record<string, string> = {
+    lcp: 'viewer.lcp_ms',
+    inp: 'viewer.inp_ms',
+    cls: 'viewer.cls',
+    first_page: 'viewer.first_page_ms',
+  };
+
+  for (const row of rows) {
+    const metricId = metricIds[row.metric];
+    // ttfb is collected for diagnosis but is not itself a product promise.
+    if (!metricId) continue;
+    // A handful of samples cannot establish a percentile.
+    if (Number(row.samples) < 20) continue;
+
+    await measure(metricId, {
+      value: Number(row.p75),
+      sampleSize: Number(row.samples),
+      evidence: { percentile: 75, windowDays: 28, source: 'field' },
     });
   }
 }

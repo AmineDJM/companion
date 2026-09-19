@@ -1,4 +1,4 @@
-import { estimateCostUsd, type AiRequestKind } from '@companion/shared';
+import { PRICING_VERSION, estimateCostUsd, type AiRequestKind } from '@companion/shared';
 import { and, eq, gte, lt, schema, sql } from '@companion/db';
 import { getContainer } from '../container';
 
@@ -57,6 +57,7 @@ export async function recordUsage(entry: LedgerEntry): Promise<number> {
       billable: entry.billable && entry.succeeded,
       errorCode: entry.errorCode ?? null,
       requestId: entry.requestId ?? null,
+      pricingVersion: PRICING_VERSION,
       occurredAt: new Date(),
     });
   } catch (error) {
