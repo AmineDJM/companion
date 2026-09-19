@@ -66,9 +66,6 @@ const envSchema = z
     STRIPE_PRICE_BUSINESS_MONTHLY: z.string().optional(),
     STRIPE_PRICE_BUSINESS_ANNUAL: z.string().optional(),
 
-    GOOGLE_CLIENT_ID: z.string().optional(),
-    GOOGLE_CLIENT_SECRET: z.string().optional(),
-
     /** Comma-separated. The only bootstrap path to the super-admin role. */
     SUPER_ADMIN_EMAILS: z.string().optional(),
 
@@ -200,6 +197,22 @@ export function canonicalUrl(source: NodeJS.ProcessEnv = process.env): string {
   const resolved =
     explicit || platform || (hostname ? `https://${hostname}` : '') || 'http://localhost:3000';
   return resolved.replace(/\/$/, '');
+}
+
+/**
+ * Whether this instance sells anything.
+ *
+ * Checkout is a server-side redirect into Stripe, so without a secret key
+ * there is no paid tier to reach. Rather than showing prices and upgrade
+ * buttons that dead-end in a 503, the interface hides billing entirely: no
+ * pricing page, no upgrade prompts, no billing menu. Every workspace runs on
+ * its configured entitlements, which is exactly what a trial deployment wants.
+ *
+ * Adding the key later turns all of it back on with no redeploy of the
+ * blueprint and no code change.
+ */
+export function billingEnabled(): boolean {
+  return Boolean(env().STRIPE_SECRET_KEY);
 }
 
 /** Where the canonical origin came from, for the readiness report. */

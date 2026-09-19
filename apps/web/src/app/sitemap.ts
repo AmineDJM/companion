@@ -1,5 +1,5 @@
 import type { MetadataRoute } from 'next';
-import { canonicalUrl } from '@/server/env';
+import { billingEnabled, canonicalUrl } from '@/server/env';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,7 +12,17 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
   return [
     { url: `${origin}/`, lastModified: now, changeFrequency: 'weekly', priority: 1 },
-    { url: `${origin}/pricing`, lastModified: now, changeFrequency: 'monthly', priority: 0.8 },
+    // Listed only when there is something to price.
+    ...(billingEnabled()
+      ? [
+          {
+            url: `${origin}/pricing`,
+            lastModified: now,
+            changeFrequency: 'monthly' as const,
+            priority: 0.8,
+          },
+        ]
+      : []),
     { url: `${origin}/security`, lastModified: now, changeFrequency: 'monthly', priority: 0.7 },
     { url: `${origin}/privacy`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 },
     { url: `${origin}/terms`, lastModified: now, changeFrequency: 'yearly', priority: 0.3 },

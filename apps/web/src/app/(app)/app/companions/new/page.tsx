@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { billingEnabled } from '@/server/env';
 import { requireAuth } from '@/server/auth/session';
 import { effectiveMaxUploadBytes } from '@/server/services/entitlements';
 import { getCompanionSlots } from '@/server/services/quota';
@@ -40,7 +41,7 @@ export default async function NewCompanionPage() {
           <ButtonLink href="/app/companions" variant="secondary">
             Manage Companions
           </ButtonLink>
-          <ButtonLink href="/pricing">See plans</ButtonLink>
+          {billingEnabled() ? <ButtonLink href="/pricing">See plans</ButtonLink> : null}
         </div>
       </div>
     );

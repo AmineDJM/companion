@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Wordmark } from './ui/logo';
 import { ButtonLink } from './ui/button';
 import { UserMenu } from './user-menu';
+import { billingEnabled } from '@/server/env';
 
 export interface HeaderUser {
   name: string | null;
@@ -14,6 +15,7 @@ export interface HeaderUser {
  * sidebar unless a page genuinely needs one.
  */
 export function SiteHeader({ user }: { user: HeaderUser | null }) {
+  const showBilling = billingEnabled();
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-canvas/85 backdrop-blur-xl">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-5 sm:px-6">
@@ -27,7 +29,7 @@ export function SiteHeader({ user }: { user: HeaderUser | null }) {
           ) : (
             <HeaderLink href="/security">Security</HeaderLink>
           )}
-          <HeaderLink href="/pricing">Pricing</HeaderLink>
+          {showBilling ? <HeaderLink href="/pricing">Pricing</HeaderLink> : null}
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
@@ -36,7 +38,12 @@ export function SiteHeader({ user }: { user: HeaderUser | null }) {
               <ButtonLink href="/app/companions/new" size="sm" className="hidden sm:inline-flex">
                 Create Companion
               </ButtonLink>
-              <UserMenu name={user.name} email={user.email} isSuperAdmin={user.isSuperAdmin} />
+              <UserMenu
+                name={user.name}
+                email={user.email}
+                isSuperAdmin={user.isSuperAdmin}
+                showBilling={showBilling}
+              />
             </>
           ) : (
             <>

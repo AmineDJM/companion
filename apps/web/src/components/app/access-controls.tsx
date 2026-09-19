@@ -38,6 +38,8 @@ export interface AccessEntitlements {
    * that confirm a recipient's address do.
    */
   emailDelivery: boolean;
+  /** False while no Stripe key is set: there is nowhere to upgrade to. */
+  billingEnabled: boolean;
 }
 
 const EMAIL_REQUIRED =
@@ -243,9 +245,11 @@ export function AccessControls({
         {!entitlements.customExpiration && preset === 'custom' ? (
           <p className="mt-2 text-[12.5px] text-ink-muted">
             Custom dates are available on paid plans.{' '}
-            <Link href="/pricing" className="text-accent hover:text-accent-hover">
-              See plans
-            </Link>
+            {entitlements.billingEnabled ? (
+              <Link href="/pricing" className="text-accent hover:text-accent-hover">
+                See plans
+              </Link>
+            ) : null}
           </p>
         ) : null}
       </Card>

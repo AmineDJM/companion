@@ -9,6 +9,8 @@ import { Card, EmptyState, SectionHeading, Stat, StatRow } from '../ui/primitive
  * want to know, and did the documents answer it?" — not sessions and bounce rate.
  */
 export interface AnalyticsViewProps {
+  /** False while no Stripe key is set: there is nowhere to upgrade to. */
+  billingEnabled: boolean;
   level: AnalyticsLevel;
   overview: {
     views: number;
@@ -42,6 +44,7 @@ export function AnalyticsView({
   unanswered,
   series,
   visitors,
+  billingEnabled,
 }: AnalyticsViewProps) {
   const hasActivity = overview.views > 0 || overview.questions > 0;
 
@@ -205,9 +208,11 @@ export function AnalyticsView({
       {level === 'basic' ? (
         <p className="text-center text-[13px] text-ink-muted">
           Per-page engagement and identified visitors are available on paid plans.{' '}
-          <Link href="/pricing" className="text-accent hover:text-accent-hover">
-            See plans
-          </Link>
+          {billingEnabled ? (
+            <Link href="/pricing" className="text-accent hover:text-accent-hover">
+              See plans
+            </Link>
+          ) : null}
         </p>
       ) : null}
     </div>

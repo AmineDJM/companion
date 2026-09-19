@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { billingEnabled } from '@/server/env';
 
 export const metadata: Metadata = {
   title: 'Security',
@@ -123,10 +124,17 @@ export default function SecurityPage() {
 
       <p className="mt-10 text-[13.5px] text-ink-muted">
         Questions about a specific requirement?{' '}
-        <Link href="/pricing" className="text-accent hover:text-accent-hover">
-          See plans
-        </Link>{' '}
-        or get in touch — we would rather answer precisely than generally.
+        {billingEnabled() ? (
+          <>
+            <Link href="/pricing" className="text-accent hover:text-accent-hover">
+              See plans
+            </Link>{' '}
+            or get in touch
+          </>
+        ) : (
+          'Get in touch'
+        )}{' '}
+        — we would rather answer precisely than generally.
       </p>
     </div>
   );

@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+import { billingEnabled } from '@/server/env';
 import Link from 'next/link';
 import { desc, eq, schema } from '@companion/db';
 import { formatCurrencyCents, formatDateLong, formatRelativeTime } from '@companion/shared';
@@ -22,6 +24,10 @@ export default async function BillingPage({
 }: {
   searchParams: Promise<{ checkout?: string }>;
 }) {
+  // Nothing is for sale while Stripe is unconfigured, so this page does not
+  // exist rather than showing prices that lead to a 503.
+  if (!billingEnabled()) notFound();
+
   const auth = await requireAuth();
   const { checkout } = await searchParams;
 

@@ -122,6 +122,60 @@ describe('migrations', () => {
   });
 });
 
+describe('how much a first deploy asks for', () => {
+  const prompts = (name: string): string[] =>
+    (service(name).envVars ?? [])
+      .filter((entry) => entry.sync === false)
+      .map((entry) => entry.key);
+
+  it('asks only for what genuinely cannot be defaulted or derived', () => {
+    // A blueprint that prompts for twenty values is a blueprint nobody
+    // finishes. Everything with a working default carries one, and anything
+    // the two services must agree on is read from one place.
+    expect(prompts('companion-web').sort()).toEqual([
+      'OPENAI_API_KEY',
+      'S3_ACCESS_KEY_ID',
+      'S3_BUCKET',
+      'S3_SECRET_ACCESS_KEY',
+      'SUPER_ADMIN_EMAILS',
+    ]);
+  });
+
+  it('asks the worker for nothing at all', () => {
+    // It shares a bucket, a provider and a session secret with the web
+    // service by definition; typing them twice only creates a way for them
+    // to disagree.
+    expect(prompts('companion-worker')).toEqual([]);
+  });
+
+  it('never prompts for a value that has a sensible default', () => {
+    for (const key of ['APP_URL', 'S3_REGION', 'S3_ENDPOINT', 'EMAIL_FROM', 'LOG_LEVEL']) {
+      expect(prompts('companion-web'), key).not.toContain(key);
+    }
+  });
+
+  it('declares no Stripe or Google variable, since neither is needed to run', () => {
+    // Billing hides itself while unconfigured, so a trial deployment never
+    // sees a price or an upgrade button that would dead-end.
+    for (const entry of blueprint.services) {
+      for (const variable of entry.envVars ?? []) {
+        expect(variable.key, `${entry.name}.${variable.key}`).not.toMatch(/^(STRIPE_|GOOGLE_)/);
+      }
+    }
+  });
+
+  it('gives the worker the same bucket the web service writes to', () => {
+    const vars = service('companion-worker').envVars ?? [];
+    for (const key of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'OPENAI_API_KEY']) {
+      expect(vars.find((entry) => entry.key === key)?.fromService, key).toMatchObject({
+        type: 'web',
+        name: 'companion-web',
+        envVarKey: key,
+      });
+    }
+  });
+});
+
 describe('branch tracking', () => {
   it('names no branch, so every service follows the repository default', () => {
     // A hardcoded branch is a blueprint that only validates in the repository
@@ -158,8 +212,10 @@ describe('secrets', () => {
   });
 
   it('marks every credential sync:false so it is entered once, in the dashboard', () => {
-    const secretish =
-      /(_KEY|_SECRET|_TOKEN|_PASSWORD|SMTP_URL|S3_BUCKET|S3_ENDPOINT|S3_REGION|SUPER_ADMIN_EMAILS|EMAIL_FROM|APP_URL)$/;
+    // A region and an endpoint are not credentials: they are configuration
+    // with a working default, and prompting for them is how a five-field
+    // setup becomes a twenty-field one.
+    const secretish = /(_KEY|_SECRET|_TOKEN|_PASSWORD|SMTP_URL|S3_BUCKET|SUPER_ADMIN_EMAILS)$/;
     for (const entry of blueprint.services) {
       for (const variable of entry.envVars ?? []) {
         if (!secretish.test(variable.key)) continue;

@@ -400,17 +400,40 @@ async function billingChecks(): Promise<ReadinessCheck[]> {
   const checks: ReadinessCheck[] = [];
 
   if (!stripe) {
-    // Not an error: an instance can run without billing, and checkout is
-    // refused with 503 rather than a mysterious failure.
+    // Billing removes itself from the product while Stripe is unset: /pricing
+    // and /billing do not exist and nothing links to them, so there is no
+    // broken path for a customer to find. Reporting that as a warning would
+    // put a permanent yellow row on this page for a deliberate decision.
+    //
+    // It stops being deliberate the moment money is already involved. A live
+    // subscription means someone bought something this instance can no longer
+    // renew, change or cancel, and whose webhooks are being discarded. A
+    // cancelled or incomplete one is history, and history needs no provider.
+    const rows = await db
+      .select({ value: sql<number>`count(*)::int` })
+      .from(schema.subscriptions)
+      .where(
+        sql`${schema.subscriptions.status} IN ('active', 'trialing', 'past_due', 'unpaid', 'paused')`,
+      );
+    const dependents = Number(rows[0]?.value ?? 0);
+
     return [
-      fail(
-        'stripe',
-        'Stripe',
-        'Billing',
-        'WARNING',
-        'STRIPE_SECRET_KEY is not set — checkout is unavailable',
-        'Add STRIPE_SECRET_KEY to sell plans. Existing entitlements keep working without it.',
-      ),
+      dependents === 0
+        ? pass(
+            'stripe',
+            'Billing (optional)',
+            'Billing',
+            'Not configured — the product runs with no billing and hides every path to it',
+          )
+        : fail(
+            'stripe',
+            'Billing (optional)',
+            'Billing',
+            'CRITICAL',
+            `Not configured, but ${dependents} subscription(s) exist`,
+            'Restore STRIPE_SECRET_KEY. Until it is set, those subscriptions cannot be ' +
+              'renewed, changed or cancelled, and their webhooks are being discarded.',
+          ),
     ];
   }
 

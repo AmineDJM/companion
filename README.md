@@ -134,7 +134,8 @@ brew install --cask libreoffice && brew install poppler
 
 ```bash
 pnpm install
-cp .env.example .env          # fill in SESSION_SECRET and OPENAI_API_KEY
+cp .env.example .env          # fill in SESSION_SECRET and OPENAI_API_KEY;
+                              # everything else has a working default
 createdb companion_dev
 pnpm db:migrate
 pnpm db:seed
@@ -172,24 +173,40 @@ instance. Migrations run as the web service's pre-deploy command. Every secret
 is `sync:false`, so it is entered once in the Render dashboard and never
 appears in this repository.
 
-The blueprint is not a one-click product: the S3 credentials, the OpenAI key
-and `SUPER_ADMIN_EMAILS` are yours to fill in. An email provider is optional —
-Companion does not send share links, so the whole upload → attach → copy link →
-open → ask path runs without one. `APP_URL` is
-optional — until you attach a custom domain, Render's own URL is used, so the
-first deploy produces working share links with nothing set.
+**The blueprint asks for five values.** Nothing else:
+
+| | |
+| --- | --- |
+| `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Where documents live |
+| `OPENAI_API_KEY` | Answers and semantic search |
+| `SUPER_ADMIN_EMAILS` | Who gets `/admin` |
+
+Connection strings, the session secret and the region are wired between the
+services by the blueprint, and the worker types none of them: it reads the
+bucket, the key and the session secret from the web service, so the two cannot
+drift apart. `APP_URL` is unset on purpose — Render's own URL is used until you
+attach a custom domain, so the first deploy produces working share links.
+
+Billing, email and Google sign-in are not in the blueprint at all. Billing
+**hides itself** while `STRIPE_SECRET_KEY` is unset: `/pricing` and `/billing`
+answer 404 and every link to them disappears, rather than leading somewhere
+that would fail. Email is optional because Companion does not send share links
+— the whole upload → attach → copy link → open → ask path runs without a
+provider. Add either in the dashboard later; no redeploy of this file, no code
+change.
 
 `/admin/quality` opens with a **Production readiness** report: every
 dependency, its status, and one line of remediation per failure. `pnpm
 smoke:production` runs the same checks from outside and exits non-zero on
 anything critical.
 
-One thing is not optional: **object storage must be S3-compatible**. A Render
-disk belongs to one instance and does not survive a redeploy, so it cannot hold
-a customer's documents. Point `STORAGE_DRIVER=s3` at a private bucket — S3, R2
-or B2 — and the durability probe will confirm it round-trips. Leave it on
-`local` in production and the same probe reports a `CRITICAL` failure, by
-design.
+One thing is not optional: **object storage must be S3-compatible**. A platform
+disk does persist across redeploys — that is not the problem. It is attached to
+one instance, and Companion runs two services, so the worker could not read
+what the web service wrote and every document would upload and then sit in
+processing forever. Point `STORAGE_DRIVER=s3` at a private bucket — S3, R2 or
+B2 — and the durability probe will confirm it round-trips. Leave it on `local`
+in production and both services refuse to start.
 
 See [`docs/deployment.md`](docs/deployment.md) for the full sequence and
 [`docs/architecture.md`](docs/architecture.md) for how the pieces fit together.

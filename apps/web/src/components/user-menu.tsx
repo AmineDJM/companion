@@ -8,10 +8,13 @@ export function UserMenu({
   name,
   email,
   isSuperAdmin,
+  showBilling,
 }: {
   name: string | null;
   email: string;
   isSuperAdmin: boolean;
+  /** False when no Stripe key is configured; there is nothing to bill. */
+  showBilling: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -62,7 +65,7 @@ export function UserMenu({
           <div className="p-1">
             <MenuLink href="/app/companions">My Companions</MenuLink>
             <MenuLink href="/settings">Settings</MenuLink>
-            <MenuLink href="/billing">Billing</MenuLink>
+            {showBilling ? <MenuLink href="/billing">Billing</MenuLink> : null}
             {isSuperAdmin ? <MenuLink href="/admin">Admin console</MenuLink> : null}
           </div>
           <form action="/api/auth/logout" method="post" className="border-t border-line p-1">

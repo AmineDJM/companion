@@ -6,6 +6,7 @@ import { getContainer } from '@/server/container';
 import { eq, schema } from '@companion/db';
 import { AccessControls } from '@/components/app/access-controls';
 import { emailDeliveryAvailable } from '@/server/email';
+import { billingEnabled } from '@/server/env';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,6 +54,7 @@ export default async function CompanionAccessPage({
         // Configuration, not plan: the two confirm-by-email modes need a
         // provider. Sharing a link never does.
         emailDelivery: emailDeliveryAvailable(),
+        billingEnabled: billingEnabled(),
         identifiedAccess: workspace.entitlements.identifiedAccess,
         customExpiration: workspace.entitlements.customExpiration,
         removeBranding: workspace.entitlements.removeBranding,

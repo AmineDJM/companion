@@ -72,13 +72,10 @@ services:
       # browser, so its postinstall must not fetch one.
       - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
         value: '1'
-      # The public origin recipients actually use. Optional: until it is set,
-      # Render's own RENDER_EXTERNAL_URL is used, so the first deploy produces
-      # working share links with nothing filled in. Set it once a custom
-      # domain is attached — it is resolved per request, so a change takes
-      # effect on restart and needs no rebuild.
-      - key: APP_URL
-        sync: false
+      # APP_URL is deliberately absent. Render's own RENDER_EXTERNAL_URL is
+      # used until it is set, so the first deploy produces working share links
+      # with nothing typed. Add it in the dashboard when a custom domain is
+      # attached; it resolves per request, so no rebuild is needed.
       - key: DATABASE_URL
         fromDatabase:
           name: companion-postgres
@@ -93,52 +90,41 @@ services:
         generateValue: true
       - key: STORAGE_DRIVER
         value: s3
+      # ── The only five values you have to type. ──────────────────────────
+      # A bucket cannot be guessed and storage cannot be skipped: the worker
+      # and the web service run on different instances, so a shared object
+      # store is the only place both can see the same document.
       - key: S3_BUCKET
-        sync: false
-      - key: S3_REGION
         sync: false
       - key: S3_ACCESS_KEY_ID
         sync: false
       - key: S3_SECRET_ACCESS_KEY
         sync: false
-      - key: S3_ENDPOINT
-        sync: false
+      # Answers and semantic search. Without it documents still open and index
+      # for keyword search, so this one can wait if you only want to look.
       - key: OPENAI_API_KEY
         sync: false
-      - key: STRIPE_SECRET_KEY
-        sync: false
-      - key: STRIPE_WEBHOOK_SECRET
-        sync: false
-      - key: STRIPE_PRICE_PERSONAL_MONTHLY
-        sync: false
-      - key: STRIPE_PRICE_PERSONAL_ANNUAL
-        sync: false
-      - key: STRIPE_PRICE_PRO_MONTHLY
-        sync: false
-      - key: STRIPE_PRICE_PRO_ANNUAL
-        sync: false
-      - key: STRIPE_PRICE_BUSINESS_MONTHLY
-        sync: false
-      - key: STRIPE_PRICE_BUSINESS_ANNUAL
-        sync: false
-      - key: GOOGLE_CLIENT_ID
-        sync: false
-      - key: GOOGLE_CLIENT_SECRET
-        sync: false
-      # Optional. Companion does not send share links — the sender copies the
-      # link and shares it themselves — so `none` is a complete instance.
-      # Only magic-link sign-in and the two confirm-by-email access modes
-      # need delivery; without it those modes are unavailable, not broken.
-      - key: EMAIL_PROVIDER
-        value: none
-      - key: RESEND_API_KEY
-        sync: false
-      - key: SMTP_URL
-        sync: false
-      - key: EMAIL_FROM
-        sync: false
+      # Grants /admin at registration to any address listed here.
       - key: SUPER_ADMIN_EMAILS
         sync: false
+
+      # ── Everything else has a working default. ──────────────────────────
+      # `auto` suits S3 and R2 alike; override in the dashboard for a bucket
+      # that needs an explicit region.
+      - key: S3_REGION
+        value: auto
+      # S3_ENDPOINT is absent on purpose: set it in the dashboard only for a
+      # non-AWS store such as Cloudflare R2 or Backblaze B2.
+      #
+      # Email is optional — Companion does not send share links, the sender
+      # copies the link and shares it themselves. Only magic-link sign-in and
+      # the two confirm-by-email access modes need delivery.
+      - key: EMAIL_PROVIDER
+        value: none
+      # Stripe and Google sign-in are not declared at all. Billing hides
+      # itself while STRIPE_SECRET_KEY is unset, so nothing in the interface
+      # leads anywhere that would fail. Add the keys in the dashboard when
+      # you want to sell plans; no redeploy of this file is needed.
       - key: LOG_LEVEL
         value: info
 
@@ -186,18 +172,34 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: STORAGE_DRIVER
         value: s3
+      # Read from the web service rather than asked for again. The two must
+      # point at the same bucket and the same provider by definition — typing
+      # them twice only creates a way for them to disagree.
       - key: S3_BUCKET
-        sync: false
+        fromService:
+          type: web
+          name: companion-web
+          envVarKey: S3_BUCKET
       - key: S3_REGION
-        sync: false
+        fromService:
+          type: web
+          name: companion-web
+          envVarKey: S3_REGION
       - key: S3_ACCESS_KEY_ID
-        sync: false
+        fromService:
+          type: web
+          name: companion-web
+          envVarKey: S3_ACCESS_KEY_ID
       - key: S3_SECRET_ACCESS_KEY
-        sync: false
-      - key: S3_ENDPOINT
-        sync: false
+        fromService:
+          type: web
+          name: companion-web
+          envVarKey: S3_SECRET_ACCESS_KEY
       - key: OPENAI_API_KEY
-        sync: false
+        fromService:
+          type: web
+          name: companion-web
+          envVarKey: OPENAI_API_KEY
       - key: WORKER_CONCURRENCY
         value: '4'
       - key: VISION_READING_ENABLED

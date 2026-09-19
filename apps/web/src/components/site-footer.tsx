@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { billingEnabled } from '@/server/env';
 import { CompanionMark } from './ui/logo';
 
 export function SiteFooter() {
@@ -10,7 +11,7 @@ export function SiteFooter() {
           <span>© {new Date().getFullYear()} Companion</span>
         </div>
         <nav aria-label="Footer" className="flex flex-wrap gap-x-5 gap-y-2 sm:ml-auto">
-          <FooterLink href="/pricing">Pricing</FooterLink>
+          {billingEnabled() ? <FooterLink href="/pricing">Pricing</FooterLink> : null}
           <FooterLink href="/security">Security</FooterLink>
           <FooterLink href="/privacy">Privacy</FooterLink>
           <FooterLink href="/terms">Terms</FooterLink>

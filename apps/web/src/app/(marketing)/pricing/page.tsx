@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+import { billingEnabled } from '@/server/env';
 import { listPlans } from '@companion/shared';
 import { getAuthContext } from '@/server/auth/session';
 import { getContainer } from '@/server/container';
@@ -20,6 +22,10 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 export default async function PricingPage() {
+  // Nothing is for sale while Stripe is unconfigured, so this page does not
+  // exist rather than showing prices that lead to a 503.
+  if (!billingEnabled()) notFound();
+
   const auth = await getAuthContext().catch(() => null);
   const { db } = getContainer();
 

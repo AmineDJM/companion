@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { analyticsAtLeast } from '@companion/shared';
+import { billingEnabled } from '@/server/env';
 import { requireAuth } from '@/server/auth/session';
 import {
   companionOverview,
@@ -59,6 +60,7 @@ export default async function CompanionAnalyticsPage({
         topicLabel: question.topicLabel,
       }))}
       series={series}
+      billingEnabled={billingEnabled()}
       visitors={visitors.map((visitor) => ({
         email: visitor.email,
         visitCount: visitor.visitCount,
