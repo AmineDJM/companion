@@ -148,6 +148,34 @@ describe('how much a first deploy asks for', () => {
     expect(prompts('companion-worker')).toEqual([]);
   });
 
+  it('leaves no storage setting behind on the web service', () => {
+    // The real failure this prevents: an operator pastes an R2 endpoint into
+    // the web service only. Uploads then land in R2 while the worker looks
+    // for them in AWS, and every document uploads successfully and sits in
+    // processing forever — with no error anywhere, because both services are
+    // individually well configured.
+    const webKeys = (service('companion-web').envVars ?? [])
+      .map((entry) => entry.key)
+      .filter((key) => key.startsWith('S3_') || key === 'STORAGE_DRIVER');
+    const workerKeys = new Set((service('companion-worker').envVars ?? []).map((e) => e.key));
+
+    for (const key of webKeys) {
+      expect(workerKeys.has(key), `the worker is missing ${key}`).toBe(true);
+    }
+  });
+
+  it('declares the endpoint even though AWS does not need one', () => {
+    // Declared-and-empty rather than absent, because a variable that does not
+    // exist on the web service is one the worker cannot inherit. Blank is
+    // read as unset, which is exactly right for AWS.
+    const endpoint = (service('companion-web').envVars ?? []).find(
+      (entry) => entry.key === 'S3_ENDPOINT',
+    );
+    expect(endpoint).toBeDefined();
+    expect(endpoint?.value).toBe('');
+    expect(endpoint?.sync).toBeUndefined();
+  });
+
   it('never prompts for a value that has a sensible default', () => {
     for (const key of ['APP_URL', 'S3_REGION', 'S3_ENDPOINT', 'EMAIL_FROM', 'LOG_LEVEL']) {
       expect(prompts('companion-web'), key).not.toContain(key);
@@ -166,7 +194,17 @@ describe('how much a first deploy asks for', () => {
 
   it('gives the worker the same bucket the web service writes to', () => {
     const vars = service('companion-worker').envVars ?? [];
-    for (const key of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY', 'OPENAI_API_KEY']) {
+    for (const key of [
+      'S3_BUCKET',
+      'S3_ACCESS_KEY_ID',
+      'S3_SECRET_ACCESS_KEY',
+      // The endpoint decides which provider the bucket name is resolved
+      // against, so the same name at a different endpoint is a different
+      // store. Inheriting it is what makes "set it once" true.
+      'S3_ENDPOINT',
+      'S3_FORCE_PATH_STYLE',
+      'OPENAI_API_KEY',
+    ]) {
       expect(vars.find((entry) => entry.key === key)?.fromService, key).toMatchObject({
         type: 'web',
         name: 'companion-web',

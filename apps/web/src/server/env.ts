@@ -12,6 +12,19 @@ const booleanish = z
     typeof value === 'boolean' ? value : ['1', 'true', 'yes', 'on'].includes(value.toLowerCase()),
   );
 
+/**
+ * An optional value that a dashboard can leave blank.
+ *
+ * A platform env var that exists but holds "" is a different thing from one
+ * that was never set, and every schema below treats the second as "use the
+ * default". A blank field is the operator saying exactly that, so it must not
+ * fail `.url()` and take the whole service down at boot. This is not
+ * hypothetical: S3_ENDPOINT ships declared-but-empty so that the worker can
+ * inherit it, and it is empty on every deployment that uses AWS.
+ */
+const blankAsUnset = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), schema);
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -49,8 +62,8 @@ const envSchema = z
     S3_REGION: z.string().default('auto'),
     S3_ACCESS_KEY_ID: z.string().optional(),
     S3_SECRET_ACCESS_KEY: z.string().optional(),
-    S3_ENDPOINT: z.string().url().optional(),
-    S3_FORCE_PATH_STYLE: booleanish.default(false),
+    S3_ENDPOINT: blankAsUnset(z.string().url().optional()),
+    S3_FORCE_PATH_STYLE: blankAsUnset(booleanish.default(false)),
 
     /**
      * Checkout and the portal are server-side redirects, so no publishable key

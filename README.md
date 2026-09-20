@@ -177,14 +177,15 @@ appears in this repository.
 
 | | |
 | --- | --- |
-| `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Where documents live |
+| `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Where documents live (`S3_BUCKET` is the bucket name, not a URL) |
 | `OPENAI_API_KEY` | Answers and semantic search |
 | `SUPER_ADMIN_EMAILS` | Who gets `/admin` |
 
 Connection strings, the session secret and the region are wired between the
 services by the blueprint, and the worker types none of them: it reads the
-bucket, the key and the session secret from the web service, so the two cannot
-drift apart. `APP_URL` is unset on purpose — Render's own URL is used until you
+bucket, the endpoint, the key and the session secret from the web service, so
+the two cannot drift apart. A bucket outside AWS needs `S3_ENDPOINT` — set it
+on the web service after the blueprint runs, and the worker inherits it. `APP_URL` is unset on purpose — Render's own URL is used until you
 attach a custom domain, so the first deploy produces working share links.
 
 Billing, email and Google sign-in are not in the blueprint at all. Billing

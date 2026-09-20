@@ -7,6 +7,18 @@ const booleanish = z
     typeof value === 'boolean' ? value : ['1', 'true', 'yes', 'on'].includes(value.toLowerCase()),
   );
 
+/**
+ * An optional value that a dashboard can leave blank.
+ *
+ * A platform env var that exists but holds "" is a different thing from one
+ * that was never set, and every schema below treats the second as "use the
+ * default". A blank field is the operator saying exactly that, so it must not
+ * fail `.url()` and take the whole service down at boot. S3_ENDPOINT is
+ * inherited from the web service, and is empty on every AWS deployment.
+ */
+const blankAsUnset = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), schema);
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   DATABASE_URL: z.string().min(1),
@@ -31,8 +43,8 @@ const envSchema = z.object({
   S3_REGION: z.string().default('auto'),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
-  S3_ENDPOINT: z.string().url().optional(),
-  S3_FORCE_PATH_STYLE: booleanish.default(false),
+  S3_ENDPOINT: blankAsUnset(z.string().url().optional()),
+  S3_FORCE_PATH_STYLE: blankAsUnset(booleanish.default(false)),
 
   /** Jobs processed in parallel by this worker instance. */
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
@@ -94,16 +106,24 @@ export type WorkerEnv = z.infer<typeof envSchema>;
 
 let cached: WorkerEnv | null = null;
 
-export function env(): WorkerEnv {
-  if (cached) return cached;
-  const parsed = envSchema.safeParse(process.env);
+/**
+ * Parses an environment without touching the cache, so a test can check a
+ * configuration this process is not running under.
+ */
+export function loadWorkerEnv(source: NodeJS.ProcessEnv = process.env): WorkerEnv {
+  const parsed = envSchema.safeParse(source);
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
       .join('\n');
     throw new Error(`Invalid worker environment:\n${issues}`);
   }
-  cached = parsed.data;
+  return parsed.data;
+}
+
+export function env(): WorkerEnv {
+  if (cached) return cached;
+  cached = loadWorkerEnv(process.env);
   return cached;
 }
 

@@ -113,8 +113,19 @@ services:
       # that needs an explicit region.
       - key: S3_REGION
         value: auto
-      # S3_ENDPOINT is absent on purpose: set it in the dashboard only for a
-      # non-AWS store such as Cloudflare R2 or Backblaze B2.
+      # Declared empty rather than omitted, for one reason: the worker
+      # inherits it below. AWS needs no endpoint, so blank is correct there
+      # and the app reads a blank value as unset. For Cloudflare R2, Backblaze
+      # B2, Supabase or MinIO, paste the S3 API URL here — in this one place —
+      # and the worker picks up the same one. Setting it on only one of the
+      # two services is the failure this avoids: uploads would land in one
+      # store and the worker would look for them in another, so every document
+      # would sit in processing forever.
+      - key: S3_ENDPOINT
+        value: ''
+      # Needed by MinIO and some self-hosted stores. Same reasoning.
+      - key: S3_FORCE_PATH_STYLE
+        value: 'false'
       #
       # Email is optional — Companion does not send share links, the sender
       # copies the link and shares it themselves. Only magic-link sign-in and
@@ -195,6 +206,19 @@ services:
           type: web
           name: companion-web
           envVarKey: S3_SECRET_ACCESS_KEY
+      # The endpoint matters as much as the bucket: the same bucket name at a
+      # different endpoint is a different store. Inheriting it is what makes
+      # "set it once on the web service" true.
+      - key: S3_ENDPOINT
+        fromService:
+          type: web
+          name: companion-web
+          envVarKey: S3_ENDPOINT
+      - key: S3_FORCE_PATH_STYLE
+        fromService:
+          type: web
+          name: companion-web
+          envVarKey: S3_FORCE_PATH_STYLE
       - key: OPENAI_API_KEY
         fromService:
           type: web
