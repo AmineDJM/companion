@@ -272,11 +272,56 @@ async function storageChecks(production: boolean): Promise<ReadinessCheck[]> {
           'Storage',
           'CRITICAL',
           health.message ?? 'Write or read failed',
-          'Check the bucket name, credentials and that the bucket is writable.',
+          storageRemediation(health.message),
         ),
   );
 
   return checks;
+}
+
+/**
+ * Turns a provider's own word for the fault into the next thing to do.
+ *
+ * Every one of these means a different fix, and an operator reading a generic
+ * "check the bucket name, credentials and that the bucket is writable" has to
+ * try all three. The provider already said which it is.
+ */
+export function storageRemediation(message: string | undefined): string {
+  const text = (message ?? '').toLowerCase();
+  const generic = 'Check the bucket name, credentials and that the bucket is writable.';
+
+  if (text.includes('nosuchbucket')) {
+    return (
+      'That bucket does not exist at the endpoint being used. If the bucket is not on AWS, ' +
+      'set S3_ENDPOINT on the web service — without it the request goes to Amazon. ' +
+      'Otherwise check the bucket name: S3_BUCKET is a name, never a URL.'
+    );
+  }
+  if (text.includes('invalidaccesskeyid') || text.includes('signaturedoesnotmatch')) {
+    return (
+      'The provider rejected the credentials. Check S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, ' +
+      'and that they belong to the provider S3_ENDPOINT points at.'
+    );
+  }
+  if (text.includes('accessdenied')) {
+    return (
+      'The credentials are valid but not allowed to do this. Grant the key read, write and ' +
+      'delete on this bucket — an upload needs all three.'
+    );
+  }
+  if (text.includes('permanentredirect') || text.includes('authorizationheadermalformed')) {
+    return 'The bucket is in a different region. Set S3_REGION to the bucket’s own region.';
+  }
+  if (text.includes('enotfound') || text.includes('eai_again') || text.includes('econnrefused')) {
+    return (
+      'The endpoint hostname did not resolve or refused the connection. Check S3_ENDPOINT — ' +
+      'it is the provider’s S3 API URL, not the bucket’s public URL and not a dashboard link.'
+    );
+  }
+  if (text.includes('read back different bytes')) {
+    return 'The store returned different bytes than were written. Check for a proxy or cache in front of it.';
+  }
+  return generic;
 }
 
 async function aiChecks(): Promise<ReadinessCheck[]> {

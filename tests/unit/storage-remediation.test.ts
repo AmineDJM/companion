@@ -1,0 +1,49 @@
+import { describe, expect, it } from 'vitest';
+import { storageRemediation } from '../../apps/web/src/server/services/readiness';
+
+/**
+ * What the readiness page tells an operator to do next.
+ *
+ * This page exists to end an outage, and it failed at that: a real deployment
+ * showed "Storage round trip — CRITICAL — Error", with a remediation naming
+ * three possible causes. The provider had already said which one it was.
+ *
+ * Every branch below is a different fix. Collapsing them into one sentence
+ * means trying all of them.
+ */
+describe('storageRemediation', () => {
+  it('points at a missing endpoint when the bucket is not found', () => {
+    const advice = storageRemediation('Could not reach the bucket: NoSuchBucket · HTTP 404');
+    expect(advice).toContain('S3_ENDPOINT');
+    expect(advice).toContain('never a URL');
+  });
+
+  it('points at the credentials when the provider rejects them', () => {
+    for (const error of ['InvalidAccessKeyId · HTTP 403', 'SignatureDoesNotMatch · HTTP 403']) {
+      expect(storageRemediation(error)).toContain('S3_SECRET_ACCESS_KEY');
+    }
+  });
+
+  it('points at the key’s rights when it is valid but not allowed', () => {
+    // The distinction that matters: nothing about the configuration is wrong,
+    // so re-checking the keys would waste the whole investigation.
+    const advice = storageRemediation('Could not write to the bucket: AccessDenied · HTTP 403');
+    expect(advice).toContain('read, write and delete');
+    expect(advice).not.toContain('S3_ENDPOINT');
+  });
+
+  it('points at the region on a redirect', () => {
+    expect(storageRemediation('PermanentRedirect · HTTP 301')).toContain('S3_REGION');
+  });
+
+  it('points at the endpoint URL when the hostname does not resolve', () => {
+    const advice = storageRemediation('Error · getaddrinfo ENOTFOUND abc.r2.cloudflarestorage.com');
+    expect(advice).toContain('S3_ENDPOINT');
+    expect(advice).toContain('not the bucket');
+  });
+
+  it('falls back to the general advice rather than guessing', () => {
+    expect(storageRemediation('something nobody has seen before')).toContain('Check the bucket name');
+    expect(storageRemediation(undefined)).toContain('Check the bucket name');
+  });
+});

@@ -32,10 +32,13 @@ export class S3StorageDriver implements StorageDriver {
   private readonly client: S3Client;
   private readonly bucket: string;
   private readonly defaultExpiry: number;
+  /** Held only so they can be scrubbed out of any message shown to an operator. */
+  private readonly secrets: readonly string[];
 
   constructor(config: S3DriverConfig) {
     this.bucket = config.bucket;
     this.defaultExpiry = config.defaultSignedUrlSeconds ?? DEFAULT_SIGNED_SECONDS;
+    this.secrets = [config.accessKeyId, config.secretAccessKey];
     this.client = new S3Client({
       region: config.region,
       credentials: {
@@ -177,19 +180,99 @@ export class S3StorageDriver implements StorageDriver {
     );
   }
 
+  /**
+   * Proves the bucket is reachable *and* writable.
+   *
+   * HeadBucket alone is not enough: a key with read-only rights passes it and
+   * then fails on the first upload, which is the failure an operator is least
+   * likely to guess. So this writes a small object, reads it back, and deletes
+   * it — the same three operations every document needs.
+   *
+   * The failing step is named, because "it does not work" and "the bucket is
+   * there but this key cannot write to it" lead to completely different fixes.
+   */
   async healthCheck(): Promise<{ healthy: boolean; latencyMs: number; message?: string }> {
     const started = Date.now();
+    const key = `.companion-health/${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const probe = Buffer.from('companion storage probe');
+    let step = 'reach the bucket';
+
     try {
       await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+
+      step = 'write to the bucket';
+      await this.client.send(
+        new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: probe }),
+      );
+
+      step = 'read back what it wrote';
+      const read = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+      const body = await streamToBuffer(read.Body as Readable);
+      if (!body.equals(probe)) {
+        // Deleted before returning: an object left behind on every check adds
+        // up, and this one has served its purpose either way.
+        await this.deleteProbe(key);
+        return {
+          healthy: false,
+          latencyMs: Date.now() - started,
+          message: 'Wrote an object and read back different bytes',
+        };
+      }
+
+      step = 'delete what it wrote';
+      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+
       return { healthy: true, latencyMs: Date.now() - started };
     } catch (error) {
+      await this.deleteProbe(key);
       return {
         healthy: false,
         latencyMs: Date.now() - started,
-        // Only the error name is surfaced; provider payloads can carry credentials.
-        message: error instanceof Error ? error.name : 'unknown error',
+        message: `Could not ${step}: ${this.describeFailure(error)}`,
       };
     }
+  }
+
+  /** Best-effort cleanup; a probe that cannot be removed must not mask the real failure. */
+  private async deleteProbe(key: string): Promise<void> {
+    try {
+      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+    } catch {
+      // Ignored on purpose.
+    }
+  }
+
+  /**
+   * A description an operator can act on, with nothing a credential could hide in.
+   *
+   * The previous version surfaced only `error.name`, which reads "Error" for
+   * every network failure — the page said a storage check had failed and gave
+   * no way to tell a wrong endpoint from a wrong key. The provider's own name
+   * for the fault ("NoSuchBucket", "InvalidAccessKeyId") and the HTTP status
+   * are what distinguish them, and neither is a secret.
+   *
+   * The message is included because a DNS failure carries the hostname that
+   * was actually dialled, which is the single most useful fact when an
+   * endpoint is wrong. Both configured keys are redacted from it regardless:
+   * no SDK is known to echo them, and that is not a thing to rely on.
+   */
+  private describeFailure(error: unknown): string {
+    if (!(error instanceof Error)) return 'unknown error';
+
+    const meta = (error as { $metadata?: { httpStatusCode?: number } }).$metadata;
+    const status = meta?.httpStatusCode;
+    const name = error.name && error.name !== 'Error' ? error.name : null;
+    const detail = this.redact(error.message);
+
+    return [name, status ? `HTTP ${status}` : null, detail].filter(Boolean).join(' · ');
+  }
+
+  private redact(text: string): string {
+    let out = text;
+    for (const secret of this.secrets) {
+      if (secret.length >= 8) out = out.split(secret).join('[redacted]');
+    }
+    return out.length > 300 ? `${out.slice(0, 300)}…` : out;
   }
 }
 
