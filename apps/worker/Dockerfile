@@ -28,6 +28,9 @@ COPY packages/quality/package.json ./packages/quality/
 COPY e2e/package.json ./e2e/
 # Nothing in this image runs a browser; Playwright must not fetch one.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# An image build is unattended. Set on this stage rather than the base one so
+# it reaches the build and not the running worker.
+ENV CI=true
 RUN pnpm install --frozen-lockfile --filter @companion/worker...
 
 # ─── Build ───────────────────────────────────────────────────────────────────
@@ -38,8 +41,31 @@ COPY packages ./packages
 COPY apps/worker ./apps/worker
 RUN pnpm --filter @companion/worker... build
 
-# Production dependency tree only, so the image carries no compiler.
-RUN pnpm prune --prod
+# There is deliberately no `pnpm prune --prod` here.
+#
+# It used to be, and it made the image unbuildable:
+#
+#   ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY
+#     Aborted removal of modules directory due to no TTY
+#
+# The install above is filtered to this one app, which leaves a partial
+# workspace on disk; an unfiltered prune sees that and wants to purge the whole
+# modules directory, which it will not do without a terminal to ask.
+#
+# The obvious fix — CI=true, which the error itself suggests — is worse than
+# the failure. It lets the purge proceed, and the unfiltered prune that follows
+# restores nothing for the workspace packages: the worker's own production
+# dependencies are deleted along with the dev ones. That trades a build that
+# fails loudly for an image that builds green and then dies on the first
+# require. Measured, not assumed: a scratch workspace reproducing this exact
+# sequence lost its production dependency to `CI=true pnpm prune --prod`.
+#
+# So the image keeps its dev dependencies. It is larger than it needs to be —
+# TypeScript and the test runner ride along for nothing. The fix that both
+# builds and stays small is `pnpm deploy --legacy --filter @companion/worker
+# --prod`, which produces a self-contained production tree; it changes the
+# layout the runtime stage copies, so it wants a real image build to confirm
+# rather than a reasoned guess.
 
 # ─── Runtime ─────────────────────────────────────────────────────────────────
 FROM base AS runtime
