@@ -63,7 +63,13 @@ const envSchema = z
     S3_ACCESS_KEY_ID: z.string().optional(),
     S3_SECRET_ACCESS_KEY: z.string().optional(),
     S3_ENDPOINT: blankAsUnset(z.string().url().optional()),
-    S3_FORCE_PATH_STYLE: blankAsUnset(booleanish.default(false)),
+    /**
+     * Left unset on purpose. The S3 driver then derives it: path style for a
+     * custom endpoint (what MinIO requires and R2 and B2 accept), virtual-host
+     * style for AWS. A default here would silence that derivation, which is
+     * what a `.default(false)` used to do.
+     */
+    S3_FORCE_PATH_STYLE: blankAsUnset(booleanish.optional()),
 
     /**
      * Checkout and the portal are server-side redirects, so no publishable key

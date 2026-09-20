@@ -3,17 +3,13 @@ import { loadEnv } from '../../apps/web/src/server/env';
 import { loadWorkerEnv } from '../../apps/worker/src/env';
 
 /**
- * A declared-but-empty environment variable.
+ * A variable an operator left blank.
  *
- * Render has no way to express "this variable exists so another service can
- * inherit it, but it has no value here". The blueprint declares S3_ENDPOINT
- * with an empty value for exactly that reason: the worker reads it from the
- * web service, and inheriting a variable that does not exist is not possible.
- *
- * So on every AWS deployment S3_ENDPOINT arrives as "". If the schema treated
- * that as a value it would fail `.url()` and take both services down at boot
- * — on the most common configuration there is. A blank field is an operator
- * saying "not this one", and must mean the same as never having typed it.
+ * The blueprint prompts for S3_ENDPOINT because a bucket outside AWS needs
+ * one, and an AWS deployment answers that prompt by leaving it empty. Whatever
+ * a platform then stores — an absent variable or an empty string — has to mean
+ * the same thing here, or the most common configuration there is fails
+ * `.url()` and takes both services down at boot.
  */
 const BASE = {
   DATABASE_URL: 'postgres://companion:companion@127.0.0.1:5432/companion',
@@ -36,9 +32,18 @@ describe('a variable declared empty so another service can inherit it', () => {
     expect(loadWorkerEnv({ ...BASE, S3_ENDPOINT: '  ' }).S3_ENDPOINT).toBeUndefined();
   });
 
-  it('falls back to the default for an empty boolean', () => {
-    expect(loadEnv({ ...BASE, S3_FORCE_PATH_STYLE: '' }).S3_FORCE_PATH_STYLE).toBe(false);
-    expect(loadWorkerEnv({ ...BASE, S3_FORCE_PATH_STYLE: '' }).S3_FORCE_PATH_STYLE).toBe(false);
+  it('leaves an empty boolean undefined, so the driver derives it', () => {
+    // Path style is not a preference with a sensible global default: MinIO
+    // requires it and AWS refuses it. Undefined lets the driver decide from
+    // whether an endpoint is set; a default would decide wrongly for someone.
+    expect(loadEnv({ ...BASE, S3_FORCE_PATH_STYLE: '' }).S3_FORCE_PATH_STYLE).toBeUndefined();
+    expect(loadWorkerEnv({ ...BASE, S3_FORCE_PATH_STYLE: '' }).S3_FORCE_PATH_STYLE).toBeUndefined();
+    expect(loadEnv(BASE).S3_FORCE_PATH_STYLE).toBeUndefined();
+  });
+
+  it('still honours an explicit path-style override', () => {
+    expect(loadEnv({ ...BASE, S3_FORCE_PATH_STYLE: 'true' }).S3_FORCE_PATH_STYLE).toBe(true);
+    expect(loadWorkerEnv({ ...BASE, S3_FORCE_PATH_STYLE: 'false' }).S3_FORCE_PATH_STYLE).toBe(false);
   });
 
   it('still keeps a real endpoint, which is the case that matters for R2', () => {

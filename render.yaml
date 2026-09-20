@@ -107,26 +107,24 @@ services:
       # Grants /admin at registration to any address listed here.
       - key: SUPER_ADMIN_EMAILS
         sync: false
+      # The S3 API URL, for a bucket that is not on AWS: R2, B2, Supabase,
+      # MinIO. Leave it blank for AWS.
+      #
+      # sync:false rather than a declared value, for two reasons learned from
+      # a real deploy. Render reports a declared-but-empty variable as "used
+      # but not defined" and refuses to create the worker that inherits it.
+      # And a declared value is authoritative, so every later blueprint sync
+      # would overwrite whatever an operator had typed here — silently
+      # pointing the whole instance back at Amazon. sync:false is the opposite
+      # on both counts: prompted once, then owned by the dashboard.
+      - key: S3_ENDPOINT
+        sync: false
 
       # ── Everything else has a working default. ──────────────────────────
       # `auto` suits S3 and R2 alike; override in the dashboard for a bucket
       # that needs an explicit region.
       - key: S3_REGION
         value: auto
-      # Declared empty rather than omitted, for one reason: the worker
-      # inherits it below. AWS needs no endpoint, so blank is correct there
-      # and the app reads a blank value as unset. For Cloudflare R2, Backblaze
-      # B2, Supabase or MinIO, paste the S3 API URL here — in this one place —
-      # and the worker picks up the same one. Setting it on only one of the
-      # two services is the failure this avoids: uploads would land in one
-      # store and the worker would look for them in another, so every document
-      # would sit in processing forever.
-      - key: S3_ENDPOINT
-        value: ''
-      # Needed by MinIO and some self-hosted stores. Same reasoning.
-      - key: S3_FORCE_PATH_STYLE
-        value: 'false'
-      #
       # Email is optional — Companion does not send share links, the sender
       # copies the link and shares it themselves. Only magic-link sign-in and
       # the two confirm-by-email access modes need delivery.
@@ -208,11 +206,6 @@ services:
           type: web
           name: companion-web
           envVarKey: S3_ENDPOINT
-      - key: S3_FORCE_PATH_STYLE
-        fromService:
-          type: web
-          name: companion-web
-          envVarKey: S3_FORCE_PATH_STYLE
       - key: OPENAI_API_KEY
         fromService:
           type: web

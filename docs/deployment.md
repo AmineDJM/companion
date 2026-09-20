@@ -10,8 +10,8 @@
 | An OpenAI key | Answers and reading scanned pages. Everything else works without it. |
 
 On Render the first three are provisioned by the blueprint, which leaves
-**five values to type**: the bucket and its two credentials, the OpenAI key,
-and `SUPER_ADMIN_EMAILS`.
+**six values to type**: the bucket, its two credentials, its endpoint (blank
+for AWS), the OpenAI key, and `SUPER_ADMIN_EMAILS`.
 
 Stripe and an email provider are deliberately *not* on this list. Neither is
 part of the first deploy:
@@ -70,7 +70,7 @@ Four things it cannot do for you, because they are secrets or decisions:
    branch. If you want to deploy from a different one, set it per service in
    the dashboard rather than pinning it here — a branch name in the blueprint
    makes Render reject the whole file wherever that branch does not exist.
-2. **Fill in the five `sync: false` variables** on the web service. The worker
+2. **Fill in the six `sync: false` variables** on the web service. The worker
    prompts for none: it reads the bucket, the credentials, the OpenAI key and
    the session secret from the web service through `fromService`, because two
    services pointing at different buckets is a failure mode worth designing
@@ -81,6 +81,7 @@ Four things it cannot do for you, because they are secrets or decisions:
    | `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Nothing can be stored. Uploads fail. |
    | `OPENAI_API_KEY` | Documents open and index for keyword search; questions are unavailable and scanned pages are not read. |
    | `SUPER_ADMIN_EMAILS` | `/admin` is unreachable. See below. |
+   | `S3_ENDPOINT` | Leave blank for AWS. For any other store, blank means the app sends your credentials to Amazon and every upload fails. |
 
    `S3_BUCKET` is the bucket **name** — `companion`, not a URL.
 
@@ -89,11 +90,7 @@ Four things it cannot do for you, because they are secrets or decisions:
    and shared with the worker, `S3_REGION` defaulted to `auto`, and `APP_URL`
    left unset so Render's own URL is used until a custom domain is attached.
 
-3. **If your bucket is not on AWS, set `S3_ENDPOINT`** on the web service,
-   after the blueprint has been created. It is declared there with an empty
-   value rather than left out, for one reason: the worker inherits it, and a
-   variable that does not exist cannot be inherited. So you paste it once and
-   both services follow.
+3. **`S3_ENDPOINT` is your provider's S3 API URL**, or blank for AWS.
 
    | Provider | `S3_ENDPOINT` |
    | --- | --- |
@@ -101,14 +98,29 @@ Four things it cannot do for you, because they are secrets or decisions:
    | Cloudflare R2 | `https://<account_id>.r2.cloudflarestorage.com` |
    | Backblaze B2 | `https://s3.<region>.backblazeb2.com` |
    | Supabase Storage | `https://<project>.supabase.co/storage/v1/s3` |
-   | MinIO | your own URL, usually with `S3_FORCE_PATH_STYLE=true` |
+   | MinIO | your own URL |
 
-   Setting it on only one of the two services is the mistake worth naming,
-   because nothing reports it: uploads land in one store while the worker
-   looks in another, both services individually well configured, and every
-   document uploads successfully and then sits in processing forever. The
-   blueprint's inheritance is what prevents it, and a test asserts that every
-   `S3_*` variable on the web service also reaches the worker.
+   It is prompted rather than declared with a value, and that distinction cost
+   a deploy to learn. A declared-but-empty variable is *not defined* as far as
+   Render is concerned, so the worker that inherits it cannot be created:
+
+   ```
+   Create background worker companion-worker
+     (environment variable used but not defined)
+   ```
+
+   The second reason is quieter and worse. A value declared in `render.yaml`
+   is authoritative, so every later blueprint sync rewrites whatever an
+   operator typed in the dashboard — an empty `S3_ENDPOINT` would silently
+   point a working R2 instance back at Amazon, with a green tick beside it.
+   `sync: false` is the opposite on both counts: asked once, then owned by the
+   dashboard.
+
+   `S3_FORCE_PATH_STYLE` is deliberately not asked for, and not declared. The
+   driver derives it — path style whenever an endpoint is set, virtual-host
+   style for AWS — which is right for every provider in the table. Set it in
+   the dashboard only to override that.
+
 4. **Set `SUPER_ADMIN_EMAILS`, then sign up with a listed address.** Order does
    not matter. The allowlist is reconciled at registration *and* on every
    authenticated session, so adding the variable after you already registered

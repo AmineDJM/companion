@@ -44,7 +44,13 @@ const envSchema = z.object({
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_ENDPOINT: blankAsUnset(z.string().url().optional()),
-  S3_FORCE_PATH_STYLE: blankAsUnset(booleanish.default(false)),
+  /**
+   * Left unset on purpose. The S3 driver then derives it: path style for a
+   * custom endpoint (what MinIO requires and R2 and B2 accept), virtual-host
+   * style for AWS. A default here would silence that derivation, which is
+   * what a `.default(false)` used to do.
+   */
+  S3_FORCE_PATH_STYLE: blankAsUnset(booleanish.optional()),
 
   /** Jobs processed in parallel by this worker instance. */
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),

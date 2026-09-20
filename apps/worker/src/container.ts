@@ -45,7 +45,9 @@ export function container(): WorkerContainer {
             accessKeyId: config.S3_ACCESS_KEY_ID as string,
             secretAccessKey: config.S3_SECRET_ACCESS_KEY as string,
             ...(config.S3_ENDPOINT ? { endpoint: config.S3_ENDPOINT } : {}),
-            forcePathStyle: config.S3_FORCE_PATH_STYLE,
+            ...(config.S3_FORCE_PATH_STYLE !== undefined
+              ? { forcePathStyle: config.S3_FORCE_PATH_STYLE }
+              : {}),
           },
         }
       : {}),

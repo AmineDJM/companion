@@ -136,6 +136,7 @@ describe('how much a first deploy asks for', () => {
       'OPENAI_API_KEY',
       'S3_ACCESS_KEY_ID',
       'S3_BUCKET',
+      'S3_ENDPOINT',
       'S3_SECRET_ACCESS_KEY',
       'SUPER_ADMIN_EMAILS',
     ]);
@@ -194,20 +195,43 @@ describe('how much a first deploy asks for', () => {
     }
   });
 
-  it('declares the endpoint even though AWS does not need one', () => {
-    // Declared-and-empty rather than absent, because a variable that does not
-    // exist on the web service is one the worker cannot inherit. Blank is
-    // read as unset, which is exactly right for AWS.
+  it('leaves path style to the driver rather than pinning it', () => {
+    // Declaring it 'false' for everyone overrode the derivation that makes a
+    // custom endpoint work — MinIO requires path style — and pinned a value
+    // the next sync would restore over any dashboard override.
+    for (const entry of blueprint.services) {
+      expect(keys(entry.name), entry.name).not.toContain('S3_FORCE_PATH_STYLE');
+    }
+  });
+
+  it('never declares a variable with an empty value', () => {
+    // Render rejected a real deploy over this:
+    //   Create background worker companion-worker
+    //     (environment variable used but not defined)
+    //
+    // A declared-but-empty variable is "not defined" to Render, so the worker
+    // that inherits it cannot be created at all. The second reason is quieter
+    // and worse: a declared value is authoritative, so every later blueprint
+    // sync overwrites whatever an operator typed in the dashboard. An empty
+    // S3_ENDPOINT would have pointed a working R2 instance back at Amazon on
+    // the next sync, with a green tick next to it.
+    for (const entry of blueprint.services) {
+      for (const variable of entry.envVars ?? []) {
+        expect(variable.value, `${entry.name}.${variable.key}`).not.toBe('');
+      }
+    }
+  });
+
+  it('prompts for the endpoint rather than declaring it, so a sync cannot reset it', () => {
     const endpoint = (service('companion-web').envVars ?? []).find(
       (entry) => entry.key === 'S3_ENDPOINT',
     );
-    expect(endpoint).toBeDefined();
-    expect(endpoint?.value).toBe('');
-    expect(endpoint?.sync).toBeUndefined();
+    expect(endpoint?.sync).toBe(false);
+    expect(endpoint?.value).toBeUndefined();
   });
 
   it('never prompts for a value that has a sensible default', () => {
-    for (const key of ['APP_URL', 'S3_REGION', 'S3_ENDPOINT', 'EMAIL_FROM', 'LOG_LEVEL']) {
+    for (const key of ['APP_URL', 'S3_REGION', 'EMAIL_FROM', 'LOG_LEVEL']) {
       expect(prompts('companion-web'), key).not.toContain(key);
     }
   });
@@ -232,7 +256,6 @@ describe('how much a first deploy asks for', () => {
       // against, so the same name at a different endpoint is a different
       // store. Inheriting it is what makes "set it once" true.
       'S3_ENDPOINT',
-      'S3_FORCE_PATH_STYLE',
       'OPENAI_API_KEY',
     ]) {
       expect(vars.find((entry) => entry.key === key)?.fromService, key).toMatchObject({
