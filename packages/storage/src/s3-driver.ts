@@ -47,6 +47,23 @@ export class S3StorageDriver implements StorageDriver {
       },
       ...(config.endpoint ? { endpoint: config.endpoint } : {}),
       forcePathStyle: config.forcePathStyle ?? Boolean(config.endpoint),
+      // Since v3.729 the SDK computes a CRC32 for every upload and sends it as
+      // a trailer, which turns the request body into an `aws-chunked` stream.
+      // AWS understands that; several S3-compatible stores do not, and reject
+      // the write — Supabase Storage among them. The bucket answers HeadBucket
+      // and GetObject perfectly well, so the configuration looks correct and
+      // only uploads fail.
+      //
+      // WHEN_REQUIRED keeps checksums for the operations that genuinely
+      // mandate them and stops volunteering them everywhere else. Scoped to a
+      // custom endpoint so an AWS deployment keeps the default integrity
+      // checks it can actually use.
+      ...(config.endpoint
+        ? {
+            requestChecksumCalculation: 'WHEN_REQUIRED' as const,
+            responseChecksumValidation: 'WHEN_REQUIRED' as const,
+          }
+        : {}),
     });
   }
 

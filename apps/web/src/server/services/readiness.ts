@@ -325,6 +325,19 @@ export function storageRemediation(message: string | undefined): string {
       'project’s API keys.'
     );
   }
+  if (
+    text.includes('notimplemented') ||
+    text.includes('xamzcontentsha256mismatch') ||
+    text.includes('aws-chunked') ||
+    text.includes('unsupported')
+  ) {
+    return (
+      'The store refused an operation this client sent. This is usually the SDK volunteering ' +
+      'upload checksums that an S3-compatible store does not accept — Companion already ' +
+      'disables those whenever S3_ENDPOINT is set, so check that the endpoint really is set ' +
+      'on both services, and that your store supports the operation named above.'
+    );
+  }
   if (text.includes('accessdenied')) {
     return (
       'The credentials are valid but not allowed to do this. Grant the key read, write and ' +
