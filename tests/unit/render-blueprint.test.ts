@@ -148,6 +148,36 @@ describe('how much a first deploy asks for', () => {
     expect(prompts('companion-worker')).toEqual([]);
   });
 
+  it('never references a variable the source service does not declare', () => {
+    // Render resolves fromService against the variables a service actually
+    // has, and rejects the whole blueprint at creation time otherwise:
+    //   environment variable not found: "APP_URL" for companion-web
+    //
+    // The trap is that the reference reads as correct. APP_URL is a variable
+    // the web service genuinely understands — it is simply left unset so the
+    // platform's own URL wins, and an unset variable is not there to inherit.
+    // Platform-injected ones like RENDER_EXTERNAL_URL are not declared either.
+    // So every envVarKey has to name something this file actually declares.
+    const declaredBy = new Map(
+      blueprint.services.map((entry) => [
+        entry.name,
+        new Set((entry.envVars ?? []).map((variable) => variable.key)),
+      ]),
+    );
+
+    for (const entry of blueprint.services) {
+      for (const variable of entry.envVars ?? []) {
+        const key = variable.fromService?.envVarKey;
+        if (!key) continue;
+        const source = variable.fromService?.name as string;
+        expect(
+          declaredBy.get(source)?.has(key),
+          `${entry.name}.${variable.key} reads ${key} from ${source}, which does not declare it`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it('leaves no storage setting behind on the web service', () => {
     // The real failure this prevents: an operator pastes an R2 endpoint into
     // the web service only. Uploads then land in R2 while the worker looks
@@ -312,10 +342,18 @@ describe('configuration the application actually reads', () => {
     }
   });
 
-  it('gives the worker an origin to resolve, having none of its own', () => {
-    // A worker is not a web service, so Render sets no external URL for it.
-    expect(keys('companion-worker')).toContain('APP_URL');
-    expect(keys('companion-worker')).toContain('RENDER_EXTERNAL_URL');
+  it('gives the worker no origin, because it has nothing to build links with', () => {
+    // This once read the other way round, and Render rejected the blueprint:
+    // both variables are absent from the web service — APP_URL deliberately,
+    // RENDER_EXTERNAL_URL because the platform injects it rather than the
+    // blueprint declaring it — so neither was there to inherit.
+    //
+    // Removing them costs nothing. The worker's origin reaches exactly one
+    // place, createStorage()'s publicBaseUrl, which only the local driver
+    // reads when signing its URLs. Production refuses the local driver, so in
+    // every deployment this value is computed and then ignored.
+    expect(keys('companion-worker')).not.toContain('APP_URL');
+    expect(keys('companion-worker')).not.toContain('RENDER_EXTERNAL_URL');
   });
 
   it('keeps Playwright from downloading a browser into a server build', () => {

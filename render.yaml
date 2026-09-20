@@ -167,20 +167,14 @@ services:
           type: web
           name: companion-web
           envVarKey: SESSION_SECRET
-      # The same origin the web service serves, so a link the worker writes
-      # into an email matches the one a recipient was given.
-      - key: APP_URL
-        fromService:
-          type: web
-          name: companion-web
-          envVarKey: APP_URL
-      # A worker has no external URL of its own. Taking the web service's lets
-      # origin resolution here follow exactly the same precedence as there.
-      - key: RENDER_EXTERNAL_URL
-        fromService:
-          type: web
-          name: companion-web
-          envVarKey: RENDER_EXTERNAL_URL
+      # No APP_URL and no RENDER_EXTERNAL_URL here, for two reasons. Render
+      # resolves fromService against the variables a service actually has, so
+      # referencing one the web service never declares — APP_URL is deliberately
+      # unset, RENDER_EXTERNAL_URL is injected by the platform rather than
+      # declared — is rejected at blueprint creation. And the worker has no use
+      # for the public origin anyway: it only reaches storage as `publicBaseUrl`,
+      # which none of the S3 driver reads. It exists for the local driver, and
+      # production refuses that driver outright.
       - key: STORAGE_DRIVER
         value: s3
       # Read from the web service rather than asked for again. The two must

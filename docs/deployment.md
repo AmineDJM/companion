@@ -134,6 +134,22 @@ run.
 `fromService`, so both processes sign and verify the same cookies. Rotating it
 signs every recipient out and invalidates open preview URLs.
 
+One rule about `fromService`, learned the hard way: it resolves against the
+variables a service **actually declares**, and a reference to anything else
+fails the whole blueprint at creation time with
+
+```
+environment variable not found: "APP_URL" for companion-web
+```
+
+This is easy to get wrong because the reference reads as correct. `APP_URL` is
+a variable the web service understands perfectly — it is simply left unset so
+that Render's own URL wins — and an unset variable is not there to inherit.
+Platform-injected ones such as `RENDER_EXTERNAL_URL` are not declared either.
+That is also why `S3_ENDPOINT` is declared with an empty value rather than
+omitted: empty is a value, absent is not inheritable. A test now checks every
+`envVarKey` in this file against what the named service declares.
+
 The worker is a Docker service because conversion needs LibreOffice and
 Poppler, which are system packages rather than npm dependencies. Its first
 build is slow — it installs LibreOffice — and later builds reuse the layer.
