@@ -131,6 +131,21 @@ Four things it cannot do for you, because they are secrets or decisions:
    style for AWS — which is right for every provider in the table. Set it in
    the dashboard only to override that.
 
+   Setting it to `false` alongside a custom endpoint is the one combination to
+   avoid. The bucket name then goes into the hostname — `companion.<project>.
+   supabase.co` — which the provider holds no certificate for, so the request
+   dies during the TLS handshake:
+
+   ```
+   write EPROTO … ssl/tls alert handshake failure … SSL alert number 40
+   ```
+
+   Nothing in that error names S3, a bucket or addressing, which is why the
+   readiness page now recognises it and says so. An earlier version of this
+   blueprint declared `S3_FORCE_PATH_STYLE: 'false'`; removing it from this
+   file does not remove it from a service it was already applied to, so delete
+   it in the dashboard if your instance was created before that change.
+
 4. **Set `SUPER_ADMIN_EMAILS`, then sign up with a listed address.** Order does
    not matter. The allowlist is reconciled at registration *and* on every
    authenticated session, so adding the variable after you already registered

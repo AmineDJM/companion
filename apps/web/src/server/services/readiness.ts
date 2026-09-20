@@ -281,6 +281,29 @@ async function storageChecks(production: boolean): Promise<ReadinessCheck[]> {
     );
   }
 
+  // Bucket-in-hostname against a custom endpoint is almost always wrong, and
+  // it fails as a TLS handshake rejection rather than anything S3-shaped:
+  //
+  //   write EPROTO … ssl/tls alert handshake failure … SSL alert number 40
+  //
+  // because `bucket.project.supabase.co` matches no certificate the provider
+  // holds. Nothing in that error mentions addressing style, so it reads like a
+  // network fault and sends an operator looking at the wrong layer entirely.
+  if (config.S3_ENDPOINT && config.S3_FORCE_PATH_STYLE === false) {
+    checks.push(
+      fail(
+        'storage_addressing',
+        'Bucket addressing',
+        'Storage',
+        'WARNING',
+        'S3_FORCE_PATH_STYLE is false with a custom endpoint',
+        'Remove S3_FORCE_PATH_STYLE so it is derived, or set it to true. False puts the ' +
+          'bucket name in the hostname, which most S3-compatible providers hold no ' +
+          'certificate for — the connection then fails during the TLS handshake.',
+      ),
+    );
+  }
+
   const health = await storage.healthCheck();
   checks.push(
     health.healthy
@@ -346,6 +369,22 @@ export function storageRemediation(message: string | undefined): string {
   }
   if (text.includes('permanentredirect') || text.includes('authorizationheadermalformed')) {
     return 'The bucket is in a different region. Set S3_REGION to the bucket’s own region.';
+  }
+  if (text.includes('eproto') || text.includes('handshake') || text.includes('alert number 40')) {
+    return (
+      'The TLS handshake was rejected, so this is not a credentials problem. The usual cause ' +
+      'is S3_FORCE_PATH_STYLE being false with a custom endpoint: the bucket name then goes ' +
+      'into the hostname, which the provider holds no certificate for. Remove that variable ' +
+      'so it is derived from the endpoint, or set it to true. Otherwise check that ' +
+      'S3_ENDPOINT names a host that exists and serves HTTPS.'
+    );
+  }
+  if (text.includes('cert') && (text.includes('altname') || text.includes('hostname'))) {
+    return (
+      'The server’s certificate does not cover the hostname that was dialled. If the bucket ' +
+      'name appears in that hostname, set S3_FORCE_PATH_STYLE to true or remove it so it is ' +
+      'derived from the endpoint.'
+    );
   }
   if (text.includes('enotfound') || text.includes('eai_again') || text.includes('econnrefused')) {
     return (

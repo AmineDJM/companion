@@ -53,3 +53,26 @@ describe('storageRemediation', () => {
     expect(storageRemediation(undefined)).toContain('Check the bucket name');
   });
 });
+
+describe('a TLS failure, which is not what it looks like', () => {
+  it('names bucket addressing rather than sending anyone back to the credentials', () => {
+    // This is the error a real deployment hit. Nothing in it mentions S3, a
+    // bucket or addressing, so it reads like a network fault — and the generic
+    // "check the bucket name, credentials and that the bucket is writable"
+    // pointed at all three of the wrong things.
+    const advice = storageRemediation(
+      'Could not reach the bucket: write EPROTO 00:error:0A000410:SSL routines:' +
+        'ssl3_read_bytes:ssl/tls alert handshake failure:SSL alert number 40',
+    );
+
+    expect(advice).toContain('S3_FORCE_PATH_STYLE');
+    expect(advice).toContain('not a credentials problem');
+  });
+
+  it('says the same when the certificate simply does not cover the host', () => {
+    const advice = storageRemediation(
+      'Hostname/IP does not match certificate’s altnames: Host: companion.abc.supabase.co',
+    );
+    expect(advice).toContain('S3_FORCE_PATH_STYLE');
+  });
+});
