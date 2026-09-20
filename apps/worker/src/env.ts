@@ -8,16 +8,34 @@ const booleanish = z
   );
 
 /**
- * An optional value that a dashboard can leave blank.
+ * A variable that exists but holds nothing means the same as one that was
+ * never set.
  *
- * A platform env var that exists but holds "" is a different thing from one
- * that was never set, and every schema below treats the second as "use the
- * default". A blank field is the operator saying exactly that, so it must not
- * fail `.url()` and take the whole service down at boot. S3_ENDPOINT is
- * inherited from the web service, and is empty on every AWS deployment.
+ * Platforms produce blanks on their own. Render keeps an environment variable
+ * on a service after it is removed from render.yaml, and a `fromService`
+ * reference to a variable the source service no longer declares resolves to an
+ * empty string. A real deployment lost its worker to exactly that:
+ *
+ *   worker failed to start: Invalid worker environment:
+ *     - RENDER_EXTERNAL_URL: Invalid URL
+ *
+ * The variable was a leftover link, the value was "", and `.url()` refused it.
+ * The process died, restarted, and died again — while the fix was to delete a
+ * variable nothing had asked for.
+ *
+ * Stripping blanks here rather than field by field means every optional
+ * variable behaves this way, including ones added later. A blank is an
+ * operator or a platform saying "not this one", and it must never be the
+ * difference between a service that boots and one that does not.
  */
-const blankAsUnset = <T extends z.ZodTypeAny>(schema: T) =>
-  z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), schema);
+function withoutBlanks(source: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const cleaned: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (typeof value === 'string' && value.trim() === '') continue;
+    cleaned[key] = value;
+  }
+  return cleaned;
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -41,17 +59,17 @@ const envSchema = z.object({
   STORAGE_LOCAL_ROOT: z.string().default('.storage'),
   S3_BUCKET: z.string().optional(),
   /** Blank falls back to `auto`, which only Cloudflare R2 accepts. */
-  S3_REGION: blankAsUnset(z.string().default('auto')),
+  S3_REGION: z.string().default('auto'),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
-  S3_ENDPOINT: blankAsUnset(z.string().url().optional()),
+  S3_ENDPOINT: z.string().url().optional(),
   /**
    * Left unset on purpose. The S3 driver then derives it: path style for a
    * custom endpoint (what MinIO requires and R2 and B2 accept), virtual-host
    * style for AWS. A default here would silence that derivation, which is
    * what a `.default(false)` used to do.
    */
-  S3_FORCE_PATH_STYLE: blankAsUnset(booleanish.optional()),
+  S3_FORCE_PATH_STYLE: booleanish.optional(),
 
   /** Jobs processed in parallel by this worker instance. */
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(4),
@@ -118,7 +136,7 @@ let cached: WorkerEnv | null = null;
  * configuration this process is not running under.
  */
 export function loadWorkerEnv(source: NodeJS.ProcessEnv = process.env): WorkerEnv {
-  const parsed = envSchema.safeParse(source);
+  const parsed = envSchema.safeParse(withoutBlanks(source));
   if (!parsed.success) {
     const issues = parsed.error.issues
       .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)

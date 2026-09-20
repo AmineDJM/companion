@@ -59,3 +59,46 @@ describe('a variable declared empty so another service can inherit it', () => {
     expect(() => loadWorkerEnv({ ...BASE, S3_ENDPOINT: 'companion' })).toThrow();
   });
 });
+
+describe('a leftover platform variable', () => {
+  it('does not take the worker down, which is what actually happened', () => {
+    // The worker carried a fromService link to a variable the web service no
+    // longer declared. Render resolved it to "", .url() refused it, and the
+    // process died in a restart loop:
+    //
+    //   worker failed to start: Invalid worker environment:
+    //     - RENDER_EXTERNAL_URL: Invalid URL
+    //
+    // Nothing needed that variable. A blank must never be the difference
+    // between a service that boots and one that does not.
+    expect(() => loadWorkerEnv({ ...BASE, RENDER_EXTERNAL_URL: '' })).not.toThrow();
+    expect(loadWorkerEnv({ ...BASE, RENDER_EXTERNAL_URL: '' }).RENDER_EXTERNAL_URL).toBeUndefined();
+
+    expect(() => loadEnv({ ...BASE, RENDER_EXTERNAL_URL: '', APP_URL: '' })).not.toThrow();
+  });
+
+  it('applies to every optional variable, not the handful anyone thought of', () => {
+    const blanks = {
+      ...BASE,
+      APP_URL: '',
+      RENDER_EXTERNAL_URL: '',
+      RENDER_EXTERNAL_HOSTNAME: '  ',
+      OPENAI_API_KEY: '',
+      OPENAI_BASE_URL: '',
+      STRIPE_SECRET_KEY: '',
+      SUPER_ADMIN_EMAILS: '',
+      S3_ENDPOINT: '',
+    };
+
+    const env = loadEnv(blanks);
+    expect(env.APP_URL).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.STRIPE_SECRET_KEY).toBeUndefined();
+    expect(env.S3_ENDPOINT).toBeUndefined();
+  });
+
+  it('still refuses a required variable that is blank rather than pretending', () => {
+    // Stripping blanks must not turn a missing DATABASE_URL into a default.
+    expect(() => loadWorkerEnv({ ...BASE, DATABASE_URL: '' })).toThrow(/DATABASE_URL/);
+  });
+});
