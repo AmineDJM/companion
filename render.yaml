@@ -120,11 +120,16 @@ services:
       - key: S3_ENDPOINT
         sync: false
 
-      # ── Everything else has a working default. ──────────────────────────
-      # `auto` suits S3 and R2 alike; override in the dashboard for a bucket
-      # that needs an explicit region.
+      # The bucket's region. Blank means `auto`, which is right for Cloudflare
+      # R2 and nothing else: AWS, Backblaze and Supabase all sign with the
+      # real region and reject a request signed for another. Prompted rather
+      # than declared for the same reason as the endpoint — a declared value
+      # is restored on every sync, so a corrected region would silently revert
+      # to `auto` and break storage again with no trace of what changed.
       - key: S3_REGION
-        value: auto
+        sync: false
+
+      # ── Everything else has a working default. ──────────────────────────
       # Email is optional — Companion does not send share links, the sender
       # copies the link and shares it themselves. Only magic-link sign-in and
       # the two confirm-by-email access modes need delivery.

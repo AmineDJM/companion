@@ -173,12 +173,12 @@ instance. Migrations run as the web service's pre-deploy command. Every secret
 is `sync:false`, so it is entered once in the Render dashboard and never
 appears in this repository.
 
-**The blueprint asks for six values.** Nothing else:
+**The blueprint asks for seven values.** Nothing else:
 
 | | |
 | --- | --- |
 | `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Where documents live (`S3_BUCKET` is the bucket name, not a URL) |
-| `S3_ENDPOINT` | Your provider's S3 API URL — blank for AWS |
+| `S3_ENDPOINT`, `S3_REGION` | Your provider's S3 API URL and the bucket's region — endpoint blank for AWS, region `auto` only on R2 |
 | `OPENAI_API_KEY` | Answers and semantic search |
 | `SUPER_ADMIN_EMAILS` | Who gets `/admin` |
 

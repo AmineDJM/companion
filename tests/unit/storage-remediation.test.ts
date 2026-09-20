@@ -18,9 +18,15 @@ describe('storageRemediation', () => {
     expect(advice).toContain('never a URL');
   });
 
-  it('points at the credentials when the provider rejects them', () => {
+  it('points at the credentials and the region when a signature is rejected', () => {
+    // A request signed for the wrong region fails identically to a wrong key,
+    // and Supabase and Backblaze both need storage-specific keys rather than
+    // the project's API keys. Naming only the keys sends an operator to
+    // re-check the one thing that was already correct.
     for (const error of ['InvalidAccessKeyId · HTTP 403', 'SignatureDoesNotMatch · HTTP 403']) {
-      expect(storageRemediation(error)).toContain('S3_SECRET_ACCESS_KEY');
+      const advice = storageRemediation(error);
+      expect(advice).toContain('S3_SECRET_ACCESS_KEY');
+      expect(advice).toContain('S3_REGION');
     }
   });
 

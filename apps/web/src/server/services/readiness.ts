@@ -262,6 +262,25 @@ async function storageChecks(production: boolean): Promise<ReadinessCheck[]> {
     );
   }
 
+  // `auto` is a Cloudflare R2 convention, not an S3 one. Every other store
+  // signs with the bucket's real region and rejects a request signed for a
+  // different one — with a 403 that reads like bad credentials, sending an
+  // operator to re-check keys that were never the problem.
+  if (config.S3_ENDPOINT && config.S3_REGION === 'auto' && !/\br2\.cloudflarestorage\.com/i.test(config.S3_ENDPOINT)) {
+    checks.push(
+      fail(
+        'storage_region',
+        'Bucket region',
+        'Storage',
+        'WARNING',
+        'S3_REGION is `auto` with a custom endpoint that is not Cloudflare R2',
+        'Set S3_REGION to the bucket’s real region. Only R2 accepts `auto`; ' +
+          'elsewhere the request is signed for the wrong region and refused as if ' +
+          'the credentials were wrong.',
+      ),
+    );
+  }
+
   const health = await storage.healthCheck();
   checks.push(
     health.healthy
@@ -299,8 +318,11 @@ export function storageRemediation(message: string | undefined): string {
   }
   if (text.includes('invalidaccesskeyid') || text.includes('signaturedoesnotmatch')) {
     return (
-      'The provider rejected the credentials. Check S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, ' +
-      'and that they belong to the provider S3_ENDPOINT points at.'
+      'The provider rejected the signature. Check S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, ' +
+      'that they belong to the provider S3_ENDPOINT points at, and that S3_REGION is the ' +
+      'bucket’s real region — a request signed for the wrong region fails exactly like a ' +
+      'wrong key. On Supabase and Backblaze these are storage-specific keys, not the ' +
+      'project’s API keys.'
     );
   }
   if (text.includes('accessdenied')) {

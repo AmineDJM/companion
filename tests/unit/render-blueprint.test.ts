@@ -137,6 +137,7 @@ describe('how much a first deploy asks for', () => {
       'S3_ACCESS_KEY_ID',
       'S3_BUCKET',
       'S3_ENDPOINT',
+      'S3_REGION',
       'S3_SECRET_ACCESS_KEY',
       'SUPER_ADMIN_EMAILS',
     ]);
@@ -222,16 +223,24 @@ describe('how much a first deploy asks for', () => {
     }
   });
 
-  it('prompts for the endpoint rather than declaring it, so a sync cannot reset it', () => {
-    const endpoint = (service('companion-web').envVars ?? []).find(
-      (entry) => entry.key === 'S3_ENDPOINT',
-    );
-    expect(endpoint?.sync).toBe(false);
-    expect(endpoint?.value).toBeUndefined();
+  it('prompts for what a sync must never reset', () => {
+    // Both of these are provider-specific and operator-owned. A declared
+    // value would be restored on every sync: an endpoint back to Amazon, a
+    // region back to `auto` — each breaking storage with a green tick beside
+    // it. S3_REGION earns its prompt because `auto` is a Cloudflare R2
+    // convention; AWS, Backblaze and Supabase all reject a request signed for
+    // the wrong region.
+    for (const key of ['S3_ENDPOINT', 'S3_REGION']) {
+      const variable = (service('companion-web').envVars ?? []).find(
+        (entry) => entry.key === key,
+      );
+      expect(variable?.sync, key).toBe(false);
+      expect(variable?.value, key).toBeUndefined();
+    }
   });
 
   it('never prompts for a value that has a sensible default', () => {
-    for (const key of ['APP_URL', 'S3_REGION', 'EMAIL_FROM', 'LOG_LEVEL']) {
+    for (const key of ['APP_URL', 'EMAIL_FROM', 'LOG_LEVEL']) {
       expect(prompts('companion-web'), key).not.toContain(key);
     }
   });

@@ -10,8 +10,8 @@
 | An OpenAI key | Answers and reading scanned pages. Everything else works without it. |
 
 On Render the first three are provisioned by the blueprint, which leaves
-**six values to type**: the bucket, its two credentials, its endpoint (blank
-for AWS), the OpenAI key, and `SUPER_ADMIN_EMAILS`.
+**seven values to type**: the bucket, its two credentials, its endpoint and
+region, the OpenAI key, and `SUPER_ADMIN_EMAILS`.
 
 Stripe and an email provider are deliberately *not* on this list. Neither is
 part of the first deploy:
@@ -70,7 +70,7 @@ Four things it cannot do for you, because they are secrets or decisions:
    branch. If you want to deploy from a different one, set it per service in
    the dashboard rather than pinning it here — a branch name in the blueprint
    makes Render reject the whole file wherever that branch does not exist.
-2. **Fill in the six `sync: false` variables** on the web service. The worker
+2. **Fill in the seven `sync: false` variables** on the web service. The worker
    prompts for none: it reads the bucket, the credentials, the OpenAI key and
    the session secret from the web service through `fromService`, because two
    services pointing at different buckets is a failure mode worth designing
@@ -92,13 +92,23 @@ Four things it cannot do for you, because they are secrets or decisions:
 
 3. **`S3_ENDPOINT` is your provider's S3 API URL**, or blank for AWS.
 
-   | Provider | `S3_ENDPOINT` |
-   | --- | --- |
-   | AWS S3 | leave blank |
-   | Cloudflare R2 | `https://<account_id>.r2.cloudflarestorage.com` |
-   | Backblaze B2 | `https://s3.<region>.backblazeb2.com` |
-   | Supabase Storage | `https://<project>.supabase.co/storage/v1/s3` |
-   | MinIO | your own URL |
+   | Provider | `S3_ENDPOINT` | `S3_REGION` |
+   | --- | --- | --- |
+   | AWS S3 | leave blank | the bucket's region, e.g. `eu-west-3` |
+   | Cloudflare R2 | `https://<account_id>.r2.cloudflarestorage.com` | `auto` or blank |
+   | Backblaze B2 | `https://s3.<region>.backblazeb2.com` | that same region |
+   | Supabase Storage | `https://<project-ref>.supabase.co/storage/v1/s3` | the project's region |
+   | MinIO | your own URL | anything, e.g. `us-east-1` |
+
+   `S3_REGION` is prompted rather than defaulted because `auto` is a
+   Cloudflare R2 convention and nothing else accepts it. Everywhere else the
+   request is signed for the region you name, and a wrong one is refused with
+   a 403 that reads exactly like a bad key — so the readiness page warns about
+   `auto` with a non-R2 endpoint before any upload gets that far.
+
+   On **Supabase** and **Backblaze** the credentials are storage-specific keys
+   created for this purpose (Supabase: Storage → S3 Access Keys), not the
+   project's API keys. The bucket must already exist and should be private.
 
    It is prompted rather than declared with a value, and that distinction cost
    a deploy to learn. A declared-but-empty variable is *not defined* as far as

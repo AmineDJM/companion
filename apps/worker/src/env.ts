@@ -40,7 +40,8 @@ const envSchema = z.object({
   STORAGE_DRIVER: z.enum(['s3', 'local']).default('local'),
   STORAGE_LOCAL_ROOT: z.string().default('.storage'),
   S3_BUCKET: z.string().optional(),
-  S3_REGION: z.string().default('auto'),
+  /** Blank falls back to `auto`, which only Cloudflare R2 accepts. */
+  S3_REGION: blankAsUnset(z.string().default('auto')),
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_ENDPOINT: blankAsUnset(z.string().url().optional()),
