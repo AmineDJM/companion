@@ -155,6 +155,7 @@ pnpm test:integration  # real Postgres: authorisation, isolation, timing
 pnpm test:e2e          # Playwright, against a running app
 pnpm smoke:production  # a deployed instance: health, headers, readiness
 pnpm admin:bootstrap   # reconcile SUPER_ADMIN_EMAILS (idempotent, never demotes)
+pnpm storage:doctor    # why the bucket is refusing you, operation by operation
 ```
 
 The integration suite truncates every table, so it refuses to start unless

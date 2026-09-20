@@ -27,6 +27,7 @@
     "db:migrate": "pnpm --filter @companion/db migrate",
     "db:seed": "pnpm --filter @companion/db seed",
     "admin:bootstrap": "tsx scripts/admin-bootstrap.ts",
+    "storage:doctor": "tsx scripts/storage-doctor.ts",
     "db:studio": "pnpm --filter @companion/db studio",
     "verify": "pnpm typecheck && pnpm lint && pnpm test"
   },

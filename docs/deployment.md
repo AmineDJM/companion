@@ -212,6 +212,38 @@ and promotes the addresses in `SUPER_ADMIN_EMAILS` to Super Admin. That is the
 only bootstrap path to `/admin`; the role is never inferred from an email
 domain. It seeds no customers and no metrics.
 
+## When storage refuses you
+
+```bash
+pnpm storage:doctor
+```
+
+Run it from a shell on the service — on Render, the Shell tab of
+`companion-web` — so it reads the environment the app actually has. That is
+itself a finding: the commonest cause of "I fixed the variable and it still
+fails" is that the process never received the value you corrected.
+
+It prints the resolved configuration, then runs the five operations an upload
+needs, one at a time, and reports the provider's own answer to each:
+
+```
+  ✓ HeadBucket   (does the bucket answer at all)
+      reachable  [31ms]
+  ✓ ListObjectsV2 (can the key read the bucket)
+      0 object(s) visible  [11ms]
+  ✗ PutObject    (can the key write — this is where uploads fail)
+      AccessDenied · HTTP 403 · … · requestId=…
+  – GetObject    (can it read back what it wrote)
+      skipped — nothing was written to read
+```
+
+That shape — reachable, readable, not writable — is the one that looks like a
+working configuration from every other angle, and it is why the readiness page
+says the bucket is configured while every upload fails.
+
+No secret is printed. Credentials appear as a four-character prefix, enough to
+tell two keys apart without disclosing either.
+
 ## Health and liveness
 
 - `GET /api/health` — used by Render's health check. Reports the database,
